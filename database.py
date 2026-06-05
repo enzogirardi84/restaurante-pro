@@ -12,6 +12,55 @@ from typing import Any, Callable, Generator
 
 import config
 
+
+# ── Helpers de portabilidad ───────────────────────────────────────────
+
+def ph() -> str:
+    """Retorna el placeholder SQL adecuado según el motor."""
+    return "%s" if config.DB_ENGINE == "postgresql" else "?"
+
+
+def last_id(conn, cur) -> int:
+    """
+    Retorna el último id insertado.
+    SQLite: cur.lastrowid
+    PostgreSQL: cur.fetchone()[0] (requiere RETURNING)
+    """
+    if config.DB_ENGINE == "postgresql":
+        row = cur.fetchone()
+        return row[0] if row else 0
+    return cur.lastrowid
+
+
+def sql_date(expr: str) -> str:
+    """
+    Retorna expresión SQL de fecha compatible con SQLite y PostgreSQL.
+    Ej: sql_date("now") -> "date('now')" (SQLite) o "CURRENT_DATE" (PG)
+        sql_date("now', '-7 days') -> "date('now', '-7 days')" (SQLite) o "CURRENT_DATE - INTERVAL '7 days'" (PG)
+    """
+    if config.DB_ENGINE == "postgresql":
+        if "now" in expr:
+            return "CURRENT_DATE"
+        if "days" in expr:
+            import re
+            m = re.search(r"-(\d+)\s+days", expr)
+            n = m.group(1) if m else "1"
+            return f"CURRENT_DATE - INTERVAL '{n} days'"
+        return expr
+    return f"date({expr})"
+
+
+def str_agg(column: str, separator: str = "\\n") -> str:
+    """
+    Retorna función de agregación de strings compatible.
+    SQLite: GROUP_CONCAT(col, sep)
+    PostgreSQL: STRING_AGG(col, sep)
+    """
+    sep_esc = separator.replace("\\n", "\\n")
+    if config.DB_ENGINE == "postgresql":
+        return f"STRING_AGG({column}, '{sep_esc}')"
+    return f"GROUP_CONCAT({column}, '{sep_esc}')"
+
 # ── Import condicional: psycopg2 solo si se usa PostgreSQL ─────────────
 _pg_pool = None
 
@@ -136,29 +185,41 @@ def transactional(func: Callable) -> Callable:
 
 # ── Inicialización de esquema (idempotente) ───────────────────────────
 
-def init_db(schema_file: str | None = None) -> None:
-    """Ejecuta el schema correspondiente según el motor de base de datos."""
+def init_db(schema_file: str | None = None) -> dict:
+    """
+    Ejecuta el schema correspondiente según el motor de base de datos.
+    Retorna {"ok": True} o {"ok": False, "error": str}.
+    """
     if schema_file is None:
         if config.DB_ENGINE == "postgresql":
             schema_file = str(config.BASE_DIR / "schema_produccion.sql")
         else:
             schema_file = str(config.BASE_DIR / "schema.sqlite.sql")
 
-    conn = get_connection_direct()
     try:
-        with open(schema_file, "r", encoding="utf-8") as f:
+        conn = get_connection_direct()
+        try:
+            with open(schema_file, "r", encoding="utf-8") as f:
+                sql = f.read()
             if config.DB_ENGINE == "sqlite":
-                conn.executescript(f.read())
+                conn.executescript(sql)
             else:
                 cur = conn.cursor()
-                cur.execute(f.read())
+                cur.execute(sql)
                 cur.close()
             conn.commit()
-    finally:
-        conn.close()
+        finally:
+            conn.close()
+    except Exception as e:
+        return {"ok": False, "error": f"Error creando esquema: {e}"}
 
     # Sembrar datos de ejemplo si la tabla está vacía
-    _seed_if_empty()
+    try:
+        _seed_if_empty()
+    except Exception as e:
+        return {"ok": False, "error": f"Error sembrando datos: {e}"}
+
+    return {"ok": True}
 
 
 def _seed_if_empty() -> None:
@@ -188,12 +249,10 @@ def _exec_seed(conn) -> None:
         ("María", "López", "cocina", "maria", _hash("1234")),
         ("Admin", "Root", "administrador", "admin", _hash("admin")),
     ]
-    for n, a, r, u, ph in usuarios_data:
+    for nombre, apellido, rol, usr, pwhash in usuarios_data:
         conn.execute(
-            "INSERT INTO usuarios (nombre, apellido, rol, username, password_hash) VALUES (?,?,?,?,?)"
-            if "sqlite" in str(type(conn))
-            else "INSERT INTO usuarios (nombre, apellido, rol, username, password_hash) VALUES (%s,%s,%s,%s,%s)",
-            (n, a, r, u, ph)
+            f"INSERT INTO usuarios (nombre, apellido, rol, username, password_hash) VALUES ({ph()},{ph()},{ph()},{ph()},{ph()})",
+            (nombre, apellido, rol, usr, pwhash)
         )
 
     conn.execute("INSERT INTO mesas (numero_mesa, estado) VALUES (1, 'libre')")

@@ -182,7 +182,10 @@ def _tomar_pedido() -> None:
 
     st.divider()
     total = sum(
-        ci["cantidad"] * next(p["precio_venta"] for p in menu if p["id_producto"] == pid)
+        ci["cantidad"] * next(
+            (p["precio_venta"] for p in menu if p["id_producto"] == pid),
+            0
+        )
         for pid, ci in CART.items() if ci
     )
     qty = sum(ci["cantidad"] for ci in CART.values() if ci)

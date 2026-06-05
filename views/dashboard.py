@@ -50,14 +50,18 @@ def render() -> None:
             JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
             WHERE pc.estado_comanda = 'cobrado'
         """)
-        m = cur.fetchone()
+        row = cur.fetchone()
+        if row is None:
+            row = {"pedidos": 0, "ingresos": 0, "ticket_prom": 0}
+        m = row
 
         cur = conn.execute("""
-            SELECT COUNT(*) FROM stock_deposito sd
+            SELECT COUNT(*) AS cnt FROM stock_deposito sd
             JOIN insumos i ON i.id_insumo = sd.id_insumo
             WHERE sd.cantidad_disponible <= i.stock_minimo
         """)
-        alertas_cnt = cur.fetchone()[0]
+        row2 = cur.fetchone()
+        alertas_cnt = row2["cnt"] if row2 else 0
     finally:
         conn.close()
 
@@ -308,20 +312,20 @@ def render() -> None:
                 conn.close()
     else:
         st.success("✅  No hay cajas abiertas. Todo cerrado.")
-        if st.button("➕ Abrir nueva caja", use_container_width=True):
-            conn = get_connection_direct()
-            try:
-                monto_ini = st.number_input(
-                    "Monto de apertura", min_value=0.0, value=0.0, step=100.0
-                ) if "monto_ini" not in st.session_state else 0
-                # Simplemente creamos una caja con monto 0 si no se especifica
-                conn.execute("""
-                    INSERT INTO cajas_diarias (id_usuario_cajero, monto_apertura)
-                    VALUES (3, 0)
-                """)
-                conn.commit()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error: {e}")
-            finally:
-                conn.close()
+        with st.form("abrir_caja_form"):
+            monto_ini = st.number_input(
+                "💰 Monto de apertura", min_value=0.0, value=0.0, step=100.0, format="%.0f"
+            )
+            if st.form_submit_button("➕ Abrir nueva caja", use_container_width=True):
+                conn = get_connection_direct()
+                try:
+                    conn.execute(
+                        "INSERT INTO cajas_diarias (id_usuario_cajero, monto_apertura) VALUES (?,?)",
+                        (1, monto_ini)
+                    )
+                    conn.commit()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                finally:
+                    conn.close()

@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-from database import get_connection_direct
+from database import get_connection_direct, sql_date, ph, last_id
 
 app = FastAPI(title="COMANDAPRO ERP API", version="2.0")
 
@@ -137,16 +137,17 @@ def ventas_hoy():
     """Resumen de ventas del día actual."""
     conn = get_connection_direct()
     try:
-        cur = conn.execute("""
+        cur = conn.execute(f"""
             SELECT COUNT(DISTINCT pc.id_pedido) AS pedidos,
                    COALESCE(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total,
                    COUNT(DISTINCT pc.id_mesa) AS mesas
             FROM pedidos_cabecera pc
             JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
             WHERE pc.estado_comanda = 'cobrado'
-              AND DATE(pc.fecha_hora) = DATE('now', 'localtime')
+              AND {sql_date('pc.fecha_hora')} = {sql_date("'now', 'localtime'")}
         """)
-        return dict(cur.fetchone())
+        row = cur.fetchone()
+        return dict(row) if row else {"pedidos": 0, "total": 0, "mesas": 0}
     finally:
         conn.close()
 
@@ -156,14 +157,14 @@ def ventas_semana():
     """Ventas diarias de los últimos 7 días."""
     conn = get_connection_direct()
     try:
-        cur = conn.execute("""
-            SELECT DATE(pc.fecha_hora) AS dia,
+        cur = conn.execute(f"""
+            SELECT {sql_date('pc.fecha_hora')} AS dia,
                    ROUND(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total
             FROM pedidos_cabecera pc
             JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
             WHERE pc.estado_comanda = 'cobrado'
-              AND pc.fecha_hora >= DATE('now', '-7 days', 'localtime')
-            GROUP BY DATE(pc.fecha_hora)
+              AND pc.fecha_hora >= {sql_date("'now', '-7 days', 'localtime'")}
+            GROUP BY dia
             ORDER BY dia
         """)
         return [dict(r) for r in cur.fetchall()]
@@ -197,10 +198,11 @@ def crear_pedido(pedido: PedidoCreate):
     try:
         conn.execute("BEGIN")
         cur = conn.execute(
-            "INSERT INTO pedidos_cabecera (id_mesa, id_usuario) VALUES (?,?)",
+            f"INSERT INTO pedidos_cabecera (id_mesa, id_usuario) VALUES ({ph()},{ph()})"
+            + (" RETURNING id_pedido" if "postgresql" in str(type(conn)) else ""),
             (pedido.id_mesa, pedido.id_usuario)
         )
-        id_pedido = cur.lastrowid
+        id_pedido = last_id(conn, cur)
 
         for item in pedido.items:
             conn.execute(

@@ -2,10 +2,14 @@
 import sys, os
 sys.path.insert(0, r"C:\comandapro_erp")
 
-from database import get_connection_direct
+from database import get_connection_direct, init_db
 from components.imagenes import obtener_imagen
 from components.ia_predictiva import generar_sugerencia_compra_tres_dias
 from components.tickets import formatear_comprobante, ticket_a_html
+
+# Inicializar BD si no existe
+result = init_db()
+assert result.get("ok"), f"init_db() fallo: {result.get('error')}"
 
 conn = get_connection_direct()
 

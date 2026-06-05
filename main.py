@@ -127,7 +127,10 @@ def sidebar_nav() -> None:
 
 # ── Arranque ──────────────────────────────────────────────────────────
 
-init_db()
+result = init_db()
+if not result.get("ok"):
+    st.error(f"Error al iniciar la base de datos: {result.get('error')}")
+    st.stop()
 
 if _detectar_qr():
     pass

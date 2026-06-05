@@ -17,6 +17,7 @@ def _cargar_historial_ventas(dias: int = 30) -> pd.DataFrame:
     """
     conn = get_connection_direct()
     try:
+        from database import sql_date
         df = pd.read_sql_query(f"""
             SELECT pd.id_producto,
                    pm.nombre              AS producto,
@@ -26,7 +27,7 @@ def _cargar_historial_ventas(dias: int = 30) -> pd.DataFrame:
             JOIN pedidos_cabecera pc  ON pc.id_pedido = pd.id_pedido
             JOIN productos_menu pm    ON pm.id_producto = pd.id_producto
             WHERE pc.estado_comanda = 'cobrado'
-              AND pc.fecha_hora >= date('now', '-{dias} days', 'localtime')
+              AND pc.fecha_hora >= {sql_date(f"'now', '-{dias} days', 'localtime'")}
             GROUP BY pd.id_producto, pm.nombre, DATE(pc.fecha_hora)
             ORDER BY fecha
         """, conn)

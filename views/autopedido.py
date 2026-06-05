@@ -127,7 +127,10 @@ def _menu_cliente(mesa_id: int) -> None:
         if not ci or ci["cantidad"] <= 0:
             CART.pop(pid, None)
             continue
-        precio = next(p["precio_venta"] for p in menu if p["id_producto"] == pid)
+        precio = next(
+            (p["precio_venta"] for p in menu if p["id_producto"] == pid),
+            0
+        )
         total += ci["cantidad"] * precio
         qty += ci["cantidad"]
 
