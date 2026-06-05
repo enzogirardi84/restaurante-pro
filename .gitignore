@@ -1,0 +1,22 @@
+# Byte-compiled
+__pycache__/
+*.pyc
+
+# Env
+.env
+
+# Database
+data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Test files (optional to exclude)
+test_db.py
+test_integral.py
+test_mejoras.py

@@ -1,0 +1,2 @@
+# Python version for Streamlit Cloud
+python-3.11
