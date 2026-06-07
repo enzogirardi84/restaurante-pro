@@ -160,15 +160,14 @@ def inject_styles() -> None:
                 margin-bottom: 30px;
             }
             .login-logo-img {
-                width: 120px;
+                width: 300px;
+                max-width: 100%;
                 height: auto;
-                margin-bottom: 15px;
-                border: 1px solid var(--color-borde);
-                padding: 5px;
-                background: white;
+                border: none;
+                background: transparent;
+                border-radius: 0;
                 display: block;
-                margin-left: auto;
-                margin-right: auto;
+                margin: 0 auto 20px auto;
             }
             .login-badge {
                 background: #3e2723;

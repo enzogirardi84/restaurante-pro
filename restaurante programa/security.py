@@ -47,7 +47,7 @@ def verify_password(password: str, stored: str) -> bool:
 
 def login_logo_tag() -> str:
     import base64
-    path = Path(__file__).parent / "image.png"
+    path = Path(__file__).parent / "assets" / "image.png"
     if not path.exists():
         return ""
     b64 = base64.b64encode(path.read_bytes()).decode()
