@@ -1,0 +1,381 @@
+from pathlib import Path
+import ast
+import tempfile
+
+import database
+import cloud_config
+from access_utils import (
+    access_password_error,
+    normalize_access_username,
+    recovery_system_access,
+    validate_default_system_access,
+)
+from cash_utils import (
+    can_charge_table,
+    cash_change_due,
+    cash_close_requires_note,
+    cash_difference,
+    cash_difference_label,
+    cash_expected,
+)
+from cloud_config import masked_status_table, normalize_supabase_url
+from kitchen_utils import kitchen_auto_refresh_seconds
+from order_utils import MAX_ORDER_NOTE_LENGTH, normalize_order_cart
+from permission_utils import ADMIN_MODULES, modules_for_role
+from security import hash_password, is_password_hash, verify_password
+
+
+def fresh_db():
+    tmp = Path(tempfile.mkdtemp())
+    database.DB_DIR = tmp
+    database.DB_PATH = tmp / "restaurante.db"
+    database.init_db()
+    database.seed_pedidos_demo()
+    return tmp
+
+
+def test_no_duplicate_public_functions():
+    source = Path("sistema_restaurante.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    names: dict[str, int] = {}
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and not node.name.startswith("_"):
+            names[node.name] = names.get(node.name, 0) + 1
+    duplicates = sorted(name for name, count in names.items() if count > 1)
+    assert duplicates == []
+
+
+def test_normalize_order_cart_merges_and_cleans_items():
+    cart = {
+        1: {"id_producto": "1", "cantidad": "2", "observaciones": "  Sin   sal  "},
+        2: {"id_producto": 1, "cantidad": 1, "observaciones": "Sin cebolla"},
+        3: {"id_producto": 2, "cantidad": 0, "observaciones": "No va"},
+        4: {"id_producto": 3, "cantidad": "bad"},
+        5: {"id_producto": 4, "cantidad": 1, "observaciones": "x" * 400},
+    }
+    items = normalize_order_cart(cart)
+    by_product = {item["id_producto"]: item for item in items}
+    assert by_product[1]["cantidad"] == 3
+    assert by_product[1]["observaciones"] == "Sin sal; Sin cebolla"
+    assert 2 not in by_product
+    assert 3 not in by_product
+    assert len(by_product[4]["observaciones"]) == MAX_ORDER_NOTE_LENGTH
+
+
+def test_default_system_accesses_work():
+    enzo_password = "".join(["3710", "8100"])
+    assert recovery_system_access(" AnaHiGilardi ", "1999") == "anahigilardi"
+    assert recovery_system_access(" AnaHiGilardi ", " 1999 ") == "anahigilardi"
+    assert recovery_system_access("anahigilardi", "mala") is None
+    assert validate_default_system_access("anahigilardi", "1999") == "anahigilardi"
+    assert validate_default_system_access(" AnaHiGilardi ", "1999") == "anahigilardi"
+    assert validate_default_system_access("enzogirardi", enzo_password) == "enzogirardi"
+    assert validate_default_system_access("enzogirardi", "mala") is None
+    assert normalize_access_username("  AnaHiGilardi  ") == "anahigilardi"
+    assert access_password_error("123", minimum=4)
+    assert access_password_error("1234", minimum=4) is None
+
+
+def test_system_access_seed_does_not_overwrite_custom_password_or_active_state():
+    fresh_db()
+    custom_hash = hash_password("clave-nueva-123")
+    conn = database.get_connection()
+    try:
+        conn.execute(
+            "UPDATE accesos_sistema SET password_hash = ?, activo = 0 WHERE usuario = ?",
+            (custom_hash, "anahigilardi"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    database.init_db()
+    conn = database.get_connection()
+    try:
+        stored = conn.execute(
+            "SELECT password_hash, activo FROM accesos_sistema WHERE usuario = ?",
+            ("anahigilardi",),
+        ).fetchone()
+        assert verify_password("clave-nueva-123", stored["password_hash"])
+        assert not verify_password("1999", stored["password_hash"])
+        assert int(stored["activo"]) == 0
+    finally:
+        conn.close()
+
+
+def test_kitchen_auto_refresh_pauses_during_manual_order():
+    assert kitchen_auto_refresh_seconds(False) == 8
+    assert kitchen_auto_refresh_seconds(False, 12) == 12
+    assert kitchen_auto_refresh_seconds(True) == 0
+
+
+def test_cash_charge_requires_enough_cash_only_for_cash_payments():
+    assert cash_change_due(1000, 1500, "Efectivo") == 500
+    assert cash_change_due(1000, 500, "Efectivo") == 0
+    assert cash_change_due(1000, 500, "Tarjeta") == 0
+    assert not can_charge_table(1000, "Efectivo", 999)
+    assert can_charge_table(1000, "Efectivo", 1000)
+    assert can_charge_table(1000, "Tarjeta", 0)
+    assert not can_charge_table(0, "Tarjeta", 0)
+    expected = cash_expected(10000, 50000, 7000)
+    assert expected == 53000
+    assert cash_difference(52000, expected) == -1000
+    assert cash_difference_label(-1000) == "faltante"
+    assert cash_difference_label(1000) == "sobrante"
+    assert cash_difference_label(0) == "exacta"
+    assert cash_close_requires_note(-1)
+    assert not cash_close_requires_note(0)
+
+
+def test_role_permissions_are_restricted_and_terminal_locked():
+    assert modules_for_role("mozo") == ["Mozo"]
+    assert modules_for_role("cocina") == ["Cocina"]
+    assert modules_for_role("caja") == ["Caja", "Reportes"]
+    assert modules_for_role("administrador") == ADMIN_MODULES
+    assert modules_for_role("dueno") == ADMIN_MODULES
+    assert modules_for_role("mozo", terminal_lock="Cocina") == ["Cocina"]
+    assert modules_for_role("rol_desconocido") == []
+
+
+def test_schema_core():
+    fresh_db()
+    conn = database.get_connection()
+    try:
+        pedido_cols = {r["name"] for r in conn.execute("PRAGMA table_info(pedido_detalle)")}
+        assert "cantidad_cobrada" in pedido_cols
+        assert "cantidad_anulada" in pedido_cols
+        assert conn.execute("SELECT COUNT(*) AS c FROM pagos_mesa").fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) AS c FROM auditoria_eventos").fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) AS c FROM proveedores").fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) AS c FROM movimientos_stock").fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) AS c FROM sistema_estado").fetchone()["c"] >= 2
+        usuario_cols = {r["name"] for r in conn.execute("PRAGMA table_info(usuarios)")}
+        assert "mail" in usuario_cols
+        assert "contrasena" in usuario_cols
+        admin_access = conn.execute(
+            "SELECT mail, contrasena FROM usuarios WHERE mail = ?",
+            ("anahigilardi",),
+        ).fetchone()
+        assert admin_access
+        assert verify_password("1999", admin_access["contrasena"])
+        caja_cols = {r["name"] for r in conn.execute("PRAGMA table_info(cajas_diarias)")}
+        assert "diferencia_cierre" in caja_cols
+        assert "observacion_cierre" in caja_cols
+        usuario = conn.execute(
+            "SELECT valor FROM configuracion_sistema WHERE clave = 'usuario_sistema'"
+        ).fetchone()["valor"]
+        password = conn.execute(
+            "SELECT valor FROM configuracion_sistema WHERE clave = 'password_sistema'"
+        ).fetchone()["valor"]
+        assert usuario == "anahigilardi"
+        assert is_password_hash(password)
+        assert verify_password("1999", password)
+        accesos = {
+            row["usuario"]: row["password_hash"]
+            for row in conn.execute("SELECT usuario, password_hash FROM accesos_sistema WHERE activo = 1").fetchall()
+        }
+        assert accesos["anahigilardi"] == database.ANAHI_PASSWORD_HASH
+        assert accesos["enzogirardi"] == database.ENZO_PASSWORD_HASH
+        assert all(is_password_hash(value) for value in accesos.values())
+        indices = {row["name"] for row in conn.execute("PRAGMA index_list(pedidos_cabecera)").fetchall()}
+        assert "idx_pedidos_estado_fecha" in indices
+        assert "idx_pedidos_mesa_estado" in indices
+        detalle_indices = {row["name"] for row in conn.execute("PRAGMA index_list(pedido_detalle)").fetchall()}
+        assert "idx_detalle_pedido" in detalle_indices
+        pago_indices = {row["name"] for row in conn.execute("PRAGMA index_list(pagos_mesa)").fetchall()}
+        assert "idx_pagos_fecha" in pago_indices
+    finally:
+        conn.close()
+
+
+def test_supabase_schema_migrates_existing_tables_before_seed():
+    schema = Path("supabase/schema.sql").read_text(encoding="utf-8").lower()
+    assert schema.index("add column if not exists rol text") < schema.index("insert into accesos_sistema")
+    assert schema.index("add column if not exists id_usuario") < schema.index("references usuarios(id_usuario)")
+    assert schema.index("add column if not exists pin text") < schema.index("insert into usuarios")
+    assert schema.index("add column if not exists activo integer") < schema.index("insert into usuarios")
+
+
+def test_login_accepts_usuario_mail_and_contrasena():
+    fresh_db()
+    from sistema_restaurante import authenticate_system_access
+
+    assert authenticate_system_access("anahigilardi", "1999") == "anahigilardi"
+
+
+def test_default_login_works_before_database_lookup():
+    import sistema_restaurante
+
+    original_ensure = sistema_restaurante.ensure_system_access_schema
+    try:
+        sistema_restaurante.ensure_system_access_schema = lambda: (_ for _ in ()).throw(RuntimeError("db offline"))
+        assert sistema_restaurante.authenticate_system_access("anahigilardi", "1999") == "anahigilardi"
+    finally:
+        sistema_restaurante.ensure_system_access_schema = original_ensure
+
+
+def test_kds_flow_to_ready():
+    fresh_db()
+    conn = database.get_connection()
+    try:
+        pedido = conn.execute(
+            "SELECT id_pedido FROM pedidos_cabecera WHERE estado_comanda = 'pendiente' LIMIT 1"
+        ).fetchone()["id_pedido"]
+    finally:
+        conn.close()
+
+    assert database.avanzar_estado(pedido, "pendiente")["ok"]
+    assert database.avanzar_estado(pedido, "en_cocina")["ok"]
+
+    conn = database.get_connection()
+    try:
+        estado = conn.execute(
+            "SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = ?",
+            (pedido,),
+        ).fetchone()["estado_comanda"]
+        assert estado == "listo"
+        movimientos = conn.execute(
+            "SELECT COUNT(*) AS c FROM movimientos_stock WHERE tipo_movimiento = 'descuento_receta'"
+        ).fetchone()["c"]
+        assert movimientos > 0
+    finally:
+        conn.close()
+
+
+def test_payments_and_cancellations_schema_flow():
+    fresh_db()
+    conn = database.get_connection()
+    try:
+        conn.execute("""
+            INSERT INTO pedidos_cabecera (id_mesa, id_usuario, estado_comanda)
+            VALUES (?, ?, 'entregado')
+        """, (1, 1))
+        pedido = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute("""
+            INSERT INTO pedido_detalle
+                (id_pedido, id_producto, cantidad, precio_unitario_facturado, cantidad_cobrada, cantidad_anulada)
+            VALUES (?, ?, ?, ?, 0, 0)
+        """, (pedido, 1, 3, 8500))
+        detalle = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute("""
+            INSERT INTO pagos_mesa (id_mesa, id_usuario, medio_pago, subtotal, servicio, total, tipo)
+            VALUES (?, ?, 'Efectivo', 8500, 850, 9350, 'parcial')
+        """, (1, 1))
+        pago = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute("UPDATE pedido_detalle SET cantidad_cobrada = 1 WHERE id_detalle = ?", (detalle,))
+        conn.execute(
+            "INSERT INTO pago_detalle (id_pago, id_detalle, cantidad, precio_unitario) VALUES (?, ?, ?, ?)",
+            (pago, detalle, 1, 8500),
+        )
+        conn.execute("""
+            UPDATE pedido_detalle
+               SET cantidad_anulada = 1,
+                   motivo_anulacion = 'Prueba'
+             WHERE id_detalle = ?
+        """, (detalle,))
+        conn.commit()
+
+        row = conn.execute("""
+            SELECT cantidad, cantidad_cobrada, cantidad_anulada,
+                   (cantidad - cantidad_cobrada - cantidad_anulada) AS pendiente
+            FROM pedido_detalle
+            WHERE id_detalle = ?
+        """, (detalle,)).fetchone()
+        assert row["pendiente"] == 1
+        assert conn.execute("SELECT COUNT(*) AS c FROM pago_detalle").fetchone()["c"] == 1
+    finally:
+        conn.close()
+
+
+def test_cloud_status_does_not_expose_values():
+    rows = masked_status_table()
+    assert rows
+    assert all("sb_secret" not in str(row) for row in rows)
+    assert all("postgresql://" not in str(row) for row in rows)
+
+
+def test_supabase_rest_url_normalizes_to_project_base():
+    url = "https://jyisecrmuiebuvtgqjhy.supabase.co/rest/v1/"
+    assert normalize_supabase_url(url) == "https://jyisecrmuiebuvtgqjhy.supabase.co"
+
+
+def test_postgres_sql_translation():
+    sql = database.to_postgres_sql(
+        "INSERT OR IGNORE INTO configuracion_sistema (clave, valor) VALUES (?, ?)"
+    )
+    assert "%s" in sql
+    assert "ON CONFLICT DO NOTHING" in sql
+
+    sql = database.to_postgres_sql(
+        "UPDATE pedidos_cabecera SET fecha_cobro = datetime('now','localtime') WHERE id_pedido = ?"
+    )
+    assert "now()" in sql
+    assert "%s" in sql
+
+    returned, pk = database.add_returning_primary_key(
+        "INSERT INTO pedidos_cabecera (id_mesa, id_usuario) VALUES (%s, %s)"
+    )
+    assert pk == "id_pedido"
+    assert "RETURNING id_pedido" in returned
+
+
+def test_database_url_normalization(monkey_patch=None):
+    original = cloud_config.get_secret
+    try:
+        cloud_config.get_secret = lambda name: (
+            "postgresql://postgres.ref:pass@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
+            if name == "DATABASE_URL"
+            else ""
+        )
+        assert "sslmode=require" in cloud_config.normalized_database_url()
+        assert cloud_config.database_url_warnings() == []
+
+        cloud_config.get_secret = lambda name: (
+            "postgresql://postgres.ref:[YOUR-PASSWORD]@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
+            if name == "DATABASE_URL"
+            else ""
+        )
+        assert cloud_config.database_url_warnings()
+
+        values = {
+            "DB_ENGINE": "sqlite",
+            "DATABASE_URL": "postgresql://postgres.ref:pass@aws-1-us-east-1.pooler.supabase.com:5432/postgres",
+            "NOMBRE_LOCAL": "COMANDAPRO ERP",
+            "SERVICIO_PORCENTAJE": "10",
+        }
+        cloud_config.get_secret = lambda name: values.get(name, "")
+        assert cloud_config.db_engine() == "sqlite"
+        assert cloud_config.normalized_database_url() == ""
+        assert cloud_config.app_name("X") == "COMANDAPRO ERP"
+        assert cloud_config.default_service_percentage(5) == 10
+    finally:
+        cloud_config.get_secret = original
+
+
+def test_password_hashing_and_legacy_verification():
+    hashed = hash_password("clave-segura")
+    assert is_password_hash(hashed)
+    assert verify_password("clave-segura", hashed)
+    assert not verify_password("otra", hashed)
+    assert verify_password("restaurante", "restaurante")
+
+
+if __name__ == "__main__":
+    test_no_duplicate_public_functions()
+    test_normalize_order_cart_merges_and_cleans_items()
+    test_default_system_accesses_work()
+    test_system_access_seed_does_not_overwrite_custom_password_or_active_state()
+    test_kitchen_auto_refresh_pauses_during_manual_order()
+    test_cash_charge_requires_enough_cash_only_for_cash_payments()
+    test_role_permissions_are_restricted_and_terminal_locked()
+    test_schema_core()
+    test_login_accepts_usuario_mail_and_contrasena()
+    test_default_login_works_before_database_lookup()
+    test_kds_flow_to_ready()
+    test_payments_and_cancellations_schema_flow()
+    test_cloud_status_does_not_expose_values()
+    test_supabase_rest_url_normalizes_to_project_base()
+    test_postgres_sql_translation()
+    test_database_url_normalization()
+    test_password_hashing_and_legacy_verification()
+    print("tests_ok")

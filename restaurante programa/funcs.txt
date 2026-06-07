@@ -1,0 +1,100 @@
+﻿def bootstrap_database_once() -> str:
+def bootstrap_database() -> None:
+def app_build_label() -> str:
+def set_system_state(clave: str, valor: str) -> None:
+def register_app_boot_once() -> str:
+def inject_styles() -> None:
+def money(value: float | int | None) -> str:
+def precio_producto_html(producto: dict) -> str:
+def query_value(name: str, default: str = "") -> str:
+def system_user() -> dict:
+def apply_terminal_autologin() -> None:
+def title(text: str, subtitle: str = "") -> None:
+def stat_card(label: str, value: str | int | float, accent: str = "#285f83") -> None:
+def auto_refresh(seconds: int) -> None:
+def terminal_mode_styles() -> None:
+def rows(sql: str, params: tuple = ()) -> list[dict]:
+def one(sql: str, params: tuple = ()) -> dict | None:
+def execute(sql: str, params: tuple = ()) -> None:
+def config_values() -> dict[str, str]:
+def get_config(clave: str, default: str = "") -> str:
+def set_config(clave: str, valor: str) -> None:
+def upsert_system_access(usuario: str, password_hash: str) -> None:
+def ensure_system_access_schema() -> None:
+def system_access_rows() -> list[dict]:
+def set_system_access_active(usuario: str, activo: bool) -> None:
+def active_system_accesses() -> list[dict]:
+def authenticate_system_access(usuario: str, password: str) -> str | None:
+def set_system_password(password: str) -> None:
+def system_password_is_default() -> bool:
+def system_password_is_hashed() -> bool:
+def restaurant_config() -> dict[str, str]:
+def service_percentage() -> float:
+def service_amount(subtotal: float) -> float:
+def system_counts() -> dict[str, int]:
+def init_session() -> None:
+def login() -> None:
+def force_password_change_page() -> None:
+def allowed_modules(user: dict) -> list[str]:
+def sidebar() -> None:
+def get_menu(active_only: bool = True) -> list[dict]:
+def promo_config() -> dict:
+def metodos_pago_config() -> list[str]:
+def set_metodos_pago(metodos: list[str]) -> None:
+def calcular_precio_promocion(categoria: str, precio: float) -> float:
+def get_mesas() -> list[dict]:
+def get_mozos() -> list[dict]:
+def get_personal(rol: str | None = None, active_only: bool = False) -> list[dict]:
+def role_label(rol: str) -> str:
+def mozo_operativo() -> dict:
+def crear_pedido(id_mesa: int, id_usuario: int, cart: dict[int, dict]) -> int:
+def cart_add(producto: dict, delta: int) -> None:
+def parse_db_datetime(value: str | None) -> datetime:
+def elapsed_minutes(value: str | None) -> int:
+def elapsed_label(minutes: int) -> str:
+def kds_status_class(minutes: int) -> str:
+def pedidos_cocina_detallados() -> list[dict]:
+def resumen_chef() -> list[dict]:
+def deshacer_ultimo_despacho() -> dict:
+def detalle_mesa(id_mesa: int) -> list[dict]:
+def detalle_mesa_renglones(id_mesa: int) -> list[dict]:
+def generar_ticket(mesa: dict, detalle: list[dict], medio_pago: str, subtotal: float, servicio: float, total: float) -> str:
+def caja_abierta() -> dict | None:
+def registrar_movimiento_caja(conn, monto: float, descripcion: str, tipo: str = "ingreso_venta") -> None:
+def actualizar_pedidos_cobrados(conn, id_mesa: int) -> None:
+def cobrar_mesa(id_mesa: int, total: float, medio_pago: str) -> dict:
+def cobrar_parcial(id_mesa: int, cantidades: dict[int, int], medio_pago: str) -> dict:
+def anular_detalle(id_detalle: int, cantidad: int, motivo: str) -> dict:
+def mesas_para_caja() -> list[dict]:
+def historial_ventas(limit: int = 5) -> list[dict]:
+def anulaciones_recientes(limit: int = 10) -> list[dict]:
+def generar_corte_caja(caja: dict) -> tuple[str, pd.DataFrame, pd.DataFrame]:
+def liberar_mesa_sin_cobro(id_mesa: int, motivo: str = "") -> None:
+def cash_focus_script() -> None:
+def page_cocina() -> None:
+    def _timer_class(minutes: int) -> str:
+    def _card_html(pedido: dict) -> str:
+def page_caja() -> None:
+def page_menu() -> None:
+def page_usuarios() -> None:
+def pedidos_listos_mozo() -> list[dict]:
+def pedidos_mesa_resumen(id_mesa: int) -> list[dict]:
+def render_waiter_summary(mesas: list[dict], listos: list[dict], operativo: dict) -> None:
+def page_mozo() -> None:
+def excel_bytes(sheets: dict[str, pd.DataFrame]) -> bytes | None:
+def resumen_recetas_productos() -> list[dict]:
+def matriz_recetas() -> list[dict]:
+def receta_producto(id_producto: int) -> list[dict]:
+def page_recetas() -> None:
+def page_mesas() -> None:
+def _page_inventario_legacy_unused() -> None:
+def proveedores_activos() -> list[dict]:
+def registrar_movimiento_stock(
+def historial_stock(limit: int = 100) -> list[dict]:
+def page_inventario() -> None:
+def page_reportes() -> None:
+def page_panel() -> None:
+def public_status_page() -> None:
+def page_sistema() -> None:
+def page_backups() -> None:
+def main() -> None:
