@@ -673,12 +673,12 @@ def sidebar() -> None:
         return
     if st.session_state.modulo not in opciones:
         st.session_state.modulo = opciones[0]
-    st.session_state.modulo = st.sidebar.radio(
-        "Navegacion",
-        opciones,
-        index=opciones.index(st.session_state.modulo),
-        label_visibility="collapsed",
-    )
+    for opt in opciones:
+        activo = opt == st.session_state.modulo
+        clase = "primary" if activo else "secondary"
+        if st.sidebar.button(opt, key=f"nav_{opt}", type=clase, use_container_width=True):
+            st.session_state.modulo = opt
+            st.rerun()
     st.sidebar.divider()
     widget_check_in_out()
     st.sidebar.divider()
@@ -2084,6 +2084,7 @@ def page_menu() -> None:
                     VALUES (?, ?, ?, ?)
                 """, (nombre.strip(), precio, categoria, 1 if activo else 0))
                 registrar_auditoria("menu", "producto_creado", nombre)
+                st.toast("Producto guardado correctamente")
                 st.rerun()
 
     df = pd.DataFrame(get_menu(active_only=False))
@@ -2109,7 +2110,7 @@ def page_menu() -> None:
                 """, (row["nombre"], float(row["precio_venta"]), row["categoria"], int(row["activo"]), int(row["id_producto"])))
             conn.commit()
             registrar_auditoria("menu", "productos_actualizados", str(len(edited)))
-            st.success("Menu actualizado.")
+            st.toast("Menu actualizado correctamente")
         finally:
             conn.close()
 

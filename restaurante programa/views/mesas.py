@@ -101,12 +101,16 @@ def page_mesas() -> None:
         with c2:
             origen = st.selectbox("Mesa origen", mesas, format_func=lambda m: f"Mesa {m['numero_mesa']}", key="mesa_origen")
             destino = st.selectbox("Mesa destino", mesas, format_func=lambda m: f"Mesa {m['numero_mesa']}", key="mesa_destino")
-            if st.button("Mover / unir consumos", use_container_width=True, disabled=origen["id_mesa"] == destino["id_mesa"]):
+            origen_valido = isinstance(origen, dict) and "id_mesa" in origen
+            destino_valido = isinstance(destino, dict) and "id_mesa" in destino
+            btn_deshabilitado = not (origen_valido and destino_valido) or (origen_valido and destino_valido and origen["id_mesa"] == destino["id_mesa"])
+            if st.button("Mover / unir consumos", use_container_width=True, disabled=btn_deshabilitado):
                 execute("UPDATE pedidos_cabecera SET id_mesa=? WHERE id_mesa=? AND estado_comanda IN ('pendiente','en_cocina','listo','entregado')",
                         (destino["id_mesa"], origen["id_mesa"]))
                 execute("UPDATE mesas SET estado='libre' WHERE id_mesa=?", (origen["id_mesa"],))
                 execute("UPDATE mesas SET estado='ocupada' WHERE id_mesa=?", (destino["id_mesa"],))
                 registrar_auditoria("mesas", "mover_unir", f"{origen['numero_mesa']} -> {destino['numero_mesa']}")
+                st.toast("Consumos movidos correctamente")
                 st.rerun()
         with c3:
             mesa_accion = st.selectbox("Accion sobre mesa", mesas, format_func=lambda m: f"Mesa {m['numero_mesa']}", key="mesa_accion")

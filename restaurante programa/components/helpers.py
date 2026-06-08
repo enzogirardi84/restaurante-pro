@@ -438,11 +438,12 @@ def sidebar() -> None:
     opciones = allowed_modules(user)
     if st.session_state.modulo not in opciones:
         st.session_state.modulo = opciones[0]
-    st.session_state.modulo = st.sidebar.radio(
-        "Modulo",
-        opciones,
-        index=opciones.index(st.session_state.modulo),
-    )
+    for opt in opciones:
+        activo = opt == st.session_state.modulo
+        clase = "primary" if activo else "secondary"
+        if st.sidebar.button(opt, key=f"nav_{opt}", type=clase, use_container_width=True):
+            st.session_state.modulo = opt
+            st.rerun()
     st.sidebar.divider()
     from components.turnos_utils import widget_check_in_out as _widget
     _widget()
