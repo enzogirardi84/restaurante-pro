@@ -477,7 +477,6 @@ def get_connection(raise_on_error: bool = False):
                 raise
             import warnings
             warnings.warn(f"PostgreSQL no disponible ({exc}). Usando SQLite local.")
-            # Fallback automatico a SQLite
     DB_DIR.mkdir(parents=True, exist_ok=True)
     try:
         conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
@@ -627,52 +626,41 @@ def _migrar_promociones() -> None:
 
 def init_db(schema_file: str | None = None) -> None:
     """
-    Ejecuta schema.sql para inicializar todas las tablas.
-    Es idempotente: omite la siembra de datos si las tablas ya tienen registros.
-    Incluye verificacion de integridad con PRAGMA integrity_check.
+    Ejecuta schema.sql para inicializar TODAS las bases de datos.
+    SIEMPRE crea/esquema en SQLite local aunque PostgreSQL este activo,
+    para que el fallback funcione sin 'no such table'.
     """
-    if using_postgres():
-        schema_file = schema_file or str(SUPABASE_SCHEMA_PATH)
-        conn = get_connection()
-        try:
-            with open(schema_file, "r", encoding="utf-8") as f:
-                conn.executescript(f.read())
-            conn.commit()
-        finally:
-            conn.close()
-        return
+    local_schema = str(Path(__file__).parent / "schema.sql")
 
-    if schema_file is None:
-        schema_file = str(Path(__file__).parent / "schema.sql")
-
-    # ── Verificar integridad del archivo SQLite antes de operar ──
+    # ── Siempre inicializar SQLite local (base de fallback) ──
     conn = get_connection()
     try:
-        integrity = conn.execute("PRAGMA integrity_check").fetchone()
-        if integrity and integrity[0] != "ok":
-            import warnings
-            warnings.warn(f"Base de datos corrupta detectada: {integrity[0]}. Se intentara reconstruir.")
-    except Exception:
-        pass
+        with open(local_schema, "r", encoding="utf-8") as f:
+            conn.executescript(f.read())
+        conn.commit()
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"No se pudo inicializar SQLite local: {exc}")
     finally:
         try:
             conn.close()
         except Exception:
             pass
 
-    conn = get_connection()
-    try:
-        with open(schema_file, "r", encoding="utf-8") as f:
-            conn.executescript(f.read())
-        conn.commit()
-    finally:
-        conn.close()
-
-    _migrar_proveedores()
-    _migrar_promociones()
-    _migrar_turnos()
-    _migrar_facturacion_electronica()
-    _migrar_accesos_rol()
+    # ── Inicializar PostgreSQL si esta configurado ──
+    if using_postgres():
+        pg_schema = schema_file or str(SUPABASE_SCHEMA_PATH)
+        try:
+            pg_conn = get_connection()
+            try:
+                with open(pg_schema, "r", encoding="utf-8") as f:
+                    pg_conn.executescript(f.read())
+                pg_conn.commit()
+            finally:
+                pg_conn.close()
+        except Exception as exc:
+            import warnings
+            warnings.warn(f"No se pudo inicializar PostgreSQL: {exc}. Usando solo SQLite.")
 
     # Sembrar datos de ejemplo solo si la tabla está vacía
     conn2 = get_connection()
