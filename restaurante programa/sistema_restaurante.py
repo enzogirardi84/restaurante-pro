@@ -2267,10 +2267,16 @@ def page_usuarios() -> None:
                 if not nombre.strip() or not apellido.strip():
                     st.error("Nombre y apellido son obligatorios.")
                 else:
+                    from database import encolar_sync, get_connection as _gc
                     execute("""
                         INSERT INTO usuarios (nombre, apellido, rol, pin, activo)
                         VALUES (?, ?, ?, ?, ?)
                     """, (nombre.strip(), apellido.strip(), rol, pin.strip() or "0000", 1 if activo else 0))
+                    new_id = _gc().execute("SELECT MAX(id_usuario) FROM usuarios").fetchone()[0]
+                    encolar_sync("usuarios", "INSERT", str(new_id), {
+                        "nombre": nombre.strip(), "apellido": apellido.strip(),
+                        "rol": rol, "pin": pin.strip() or "0000", "activo": 1,
+                    })
                     registrar_auditoria("usuarios", "personal_creado", f"{nombre} {apellido} {rol}")
                     st.success("Personal creado.")
                     st.rerun()
@@ -2297,6 +2303,7 @@ def page_usuarios() -> None:
             },
         )
         if st.button("Guardar personal", type="primary"):
+            from database import encolar_sync
             conn = get_connection()
             try:
                 for _, row in edited.iterrows():
@@ -2312,6 +2319,13 @@ def page_usuarios() -> None:
                         1 if bool(row["activo"]) else 0,
                         int(row["id_usuario"]),
                     ))
+                    encolar_sync("usuarios", "UPDATE", str(int(row["id_usuario"])), {
+                        "nombre": str(row["nombre"]).strip(),
+                        "apellido": str(row["apellido"]).strip(),
+                        "rol": row["rol"],
+                        "pin": str(row["pin"]) if str(row["pin"]).strip() else "0000",
+                        "activo": 1 if bool(row["activo"]) else 0,
+                    })
                 conn.commit()
                 registrar_auditoria("usuarios", "personal_actualizado", str(len(edited)))
                 st.success("Personal actualizado.")
