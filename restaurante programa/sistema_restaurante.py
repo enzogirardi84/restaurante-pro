@@ -168,8 +168,12 @@ def keep_sidebar_open() -> None:
         <script>
         (function sidebarInit() {
             var doc = window.parent.document;
-            var btn = doc.querySelector('[data-testid="collapsedControl"]');
-            if (btn) btn.style.display = 'none';
+            function hideCollapseBtn() {
+                var btn = doc.querySelector('[data-testid="collapsedControl"]');
+                if (btn) btn.style.display = 'none';
+            }
+            hideCollapseBtn();
+            new MutationObserver(hideCollapseBtn).observe(doc.body, { childList: true, subtree: true });
             if (!window._sidebarInitialized) {
                 window._sidebarInitialized = true;
                 var isMobile = window.innerWidth < 768;

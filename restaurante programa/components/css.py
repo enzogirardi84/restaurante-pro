@@ -79,7 +79,16 @@ def inject_styles() -> None:
             section[data-testid="stSidebar"] > div:first-child {
                 background: var(--nav) !important;
             }
-            div[data-testid="collapsedControl"] { display: none !important; }
+            [data-testid="collapsedControl"] {
+                display: none !important;
+                visibility: hidden !important;
+                width: 0 !important;
+                height: 0 !important;
+                overflow: hidden !important;
+                pointer-events: none !important;
+                position: absolute !important;
+                opacity: 0 !important;
+            }
             section[data-testid="stSidebar"] .st-emotion-cache-1cypcdb,
             section[data-testid="stSidebar"] .st-emotion-cache-6qob1r {
                 background: var(--nav) !important;
