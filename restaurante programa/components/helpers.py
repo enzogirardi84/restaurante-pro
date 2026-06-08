@@ -333,7 +333,6 @@ def login() -> None:
             <div class="login-title">Restaurante Pro</div>
             <div class="login-separator">\u2666</div>
         </div>
-        <div class="login-form">
         """,
         unsafe_allow_html=True,
     )
@@ -370,7 +369,6 @@ def login() -> None:
     if system_password_is_default():
         st.warning("Hay un acceso anterior activo. Al ingresar, el sistema pedirá actualizarlo.")
     mostrar = ", ".join(str(a["usuario"]) for a in accesos) or usuario_sistema if accesos else "\u2014"
-    st.markdown("""</div>""", unsafe_allow_html=True)
     st.markdown(
         f"""
         <div class="login-footer">

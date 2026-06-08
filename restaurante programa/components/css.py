@@ -151,171 +151,93 @@ def inject_styles() -> None:
             }
 
             /* Login "El Patr\u00f3n" (Hacienda Heritage - Vintage) */
-            .login-form {
-                max-width: 380px;
-                margin: 0 auto;
-            }
-            .login-header {
-                text-align: center;
-                margin-bottom: 30px;
-            }
-
+            .login-header { text-align: center; margin-bottom: 30px; }
             .login-badge {
-                background: #3e2723;
-                color: white;
-                display: inline-block;
-                padding: 4px 12px;
-                font-size: 12px;
-                font-weight: bold;
-                letter-spacing: 2px;
-                margin-bottom: 10px;
+                background: #3e2723; color: white; display: inline-block;
+                padding: 4px 12px; font-size: 12px; font-weight: bold;
+                letter-spacing: 2px; margin-bottom: 10px;
             }
-            .login-title {
-                font-size: 32px;
-                color: var(--color-cuero);
-                font-weight: 700;
-            }
-            .login-separator {
-                color: var(--color-cuero);
-                font-size: 14px;
-                margin: 10px 0 18px;
-            }
+            .login-title { font-size: 32px; color: var(--color-cuero); font-weight: 700; }
+            .login-separator { color: var(--color-cuero); font-size: 14px; margin: 10px 0; }
             .login-label {
-                display: block;
-                font-size: 12px;
-                font-weight: bold;
-                color: #444;
-                margin-bottom: 8px;
-                letter-spacing: 1px;
+                display: block; font-size: 12px; font-weight: bold;
+                color: #444; margin-bottom: 8px; letter-spacing: 1px;
             }
-            .login-input-wrapper {
-                position: relative;
-                margin-bottom: 20px;
-            }
+            .login-input-wrapper { position: relative; margin-bottom: 20px; }
             .login-input {
-                width: 100%;
-                padding: 12px 12px 12px 40px;
-                background: #f8f1e5;
-                border: 1px solid var(--color-borde);
-                border-radius: 4px;
-                font-size: 16px;
-                color: var(--color-cuero);
+                width: 100%; padding: 12px 12px 12px 40px;
+                background: #f8f1e5; border: 1px solid var(--color-borde);
+                border-radius: 4px; font-size: 16px; color: var(--color-cuero);
                 box-sizing: border-box;
             }
             .login-icon {
-                position: absolute;
-                left: 12px;
-                top: 50%;
-                transform: translateY(-50%);
-                opacity: 0.5;
-                z-index: 1;
-                font-size: 16px;
-                line-height: 1;
-                pointer-events: none;
+                position: absolute; left: 12px; top: 50%;
+                transform: translateY(-50%); opacity: 0.5;
             }
-            /* Streamlit input overrides for login page */
-            [data-testid="stAppViewContainer"] .stTextInput {
-                position: relative;
+            .login-button-primary {
+                width: 100%; background: var(--color-cuero); color: white;
+                padding: 14px; border: none; border-radius: 4px;
+                font-weight: bold; font-size: 18px; cursor: pointer;
+                margin-bottom: 12px; transition: background 0.3s;
             }
+            .login-button-primary:hover { background: #3e2723; }
+            .login-button-secondary {
+                width: 100%; background: transparent; color: var(--color-cuero);
+                padding: 12px; border: 1px solid var(--color-borde);
+                border-radius: 4px; font-weight: bold; font-size: 14px; cursor: pointer;
+            }
+            /* Streamlit overrides */
+            [data-testid="stAppViewContainer"] .stTextInput { position: relative; }
             [data-testid="stAppViewContainer"] .stTextInput input {
-                width: 100% !important;
-                padding: 12px 12px 12px 40px !important;
-                background: #f8f1e5 !important;
-                border: 1px solid var(--color-borde) !important;
-                border-radius: 4px !important;
-                font-size: 16px !important;
+                width: 100% !important; padding: 12px 12px 12px 40px !important;
+                background: #f8f1e5 !important; border: 1px solid var(--color-borde) !important;
+                border-radius: 4px !important; font-size: 16px !important;
                 color: var(--color-cuero) !important;
                 font-family: 'Libre Caslon Text', serif !important;
-                min-height: unset !important;
-                line-height: 1.4 !important;
+                min-height: unset !important; line-height: 1.4 !important;
             }
             [data-testid="stAppViewContainer"] .stTextInput input:focus {
                 border-color: var(--color-cuero) !important;
                 box-shadow: 0 0 0 2px rgba(93,58,46,0.15) !important;
             }
             [data-testid="stAppViewContainer"] .stTextInput:first-of-type::before {
-                content: "\1F464";
-                position: absolute;
-                left: 12px;
-                top: 50%;
-                transform: translateY(-50%);
-                z-index: 1;
-                font-size: 16px;
-                opacity: 0.5;
-                line-height: 1;
-                pointer-events: none;
+                content: "\1F464"; position: absolute; left: 12px; top: 50%;
+                transform: translateY(-50%); z-index: 1; font-size: 16px;
+                opacity: 0.5; line-height: 1; pointer-events: none;
             }
             [data-testid="stAppViewContainer"] .stTextInput:last-of-type::before {
-                content: "\1F512";
-                position: absolute;
-                left: 12px;
-                top: 50%;
-                transform: translateY(-50%);
-                z-index: 1;
-                font-size: 16px;
-                opacity: 0.5;
-                line-height: 1;
-                pointer-events: none;
+                content: "\1F512"; position: absolute; left: 12px; top: 50%;
+                transform: translateY(-50%); z-index: 1; font-size: 16px;
+                opacity: 0.5; line-height: 1; pointer-events: none;
             }
-            /* Buttons */
             [data-testid="stAppViewContainer"] .stButton button[kind="primary"] {
-                width: 100% !important;
-                background: var(--color-cuero) !important;
-                color: white !important;
-                padding: 14px !important;
-                border: none !important;
-                border-radius: 4px !important;
-                font-weight: bold !important;
-                font-size: 18px !important;
-                cursor: pointer !important;
-                margin-bottom: 12px !important;
-                transition: background 0.3s !important;
+                width: 100% !important; background: var(--color-cuero) !important;
+                color: white !important; padding: 14px !important; border: none !important;
+                border-radius: 4px !important; font-weight: bold !important;
+                font-size: 18px !important; cursor: pointer !important;
+                margin-bottom: 12px !important; transition: background 0.3s !important;
                 font-family: 'Libre Caslon Text', serif !important;
-                min-height: unset !important;
-                line-height: 1.4 !important;
+                min-height: unset !important; line-height: 1.4 !important;
             }
             [data-testid="stAppViewContainer"] .stButton button[kind="primary"]:hover {
                 background: #3e2723 !important;
             }
             [data-testid="stAppViewContainer"] .stButton button:not([kind="primary"]) {
-                width: 100% !important;
-                background: transparent !important;
-                color: var(--color-cuero) !important;
-                padding: 12px !important;
+                width: 100% !important; background: transparent !important;
+                color: var(--color-cuero) !important; padding: 12px !important;
                 border: 1px solid var(--color-borde) !important;
-                border-radius: 4px !important;
-                font-weight: bold !important;
-                font-size: 14px !important;
-                cursor: pointer !important;
+                border-radius: 4px !important; font-weight: bold !important;
+                font-size: 14px !important; cursor: pointer !important;
                 font-family: 'Libre Caslon Text', serif !important;
-                min-height: unset !important;
-                line-height: 1.4 !important;
+                min-height: unset !important; line-height: 1.4 !important;
             }
             [data-testid="stAppViewContainer"] .stButton button:not([kind="primary"]):hover {
                 border-color: var(--color-cuero) !important;
             }
-            /* Footer */
-            .login-footer {
-                text-align: center;
-                margin-top: 40px;
-                font-size: 12px;
-                color: #888;
-                border-top: 1px solid var(--color-borde);
-                padding-top: 20px;
-            }
-            .footer-links a {
-                color: #888;
-                text-decoration: none;
-                margin: 0 4px;
-            }
-            .footer-links a:hover {
-                color: var(--color-cuero);
-                text-decoration: underline;
-            }
-            .active-users {
-                margin-top: 10px;
-                color: var(--color-cuero);
-            }
+            .login-footer { text-align: center; margin-top: 40px; font-size: 12px; color: #888; border-top: 1px solid var(--color-borde); padding-top: 20px; }
+            .footer-links a { color: #888; text-decoration: none; margin: 0 4px; }
+            .footer-links a:hover { color: var(--color-cuero); text-decoration: underline; }
+            .active-users { margin-top: 10px; color: var(--color-cuero); }
 
             /* Cards */
             .card {
