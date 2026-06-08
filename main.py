@@ -127,10 +127,13 @@ def sidebar_nav() -> None:
 
 # ── Arranque ──────────────────────────────────────────────────────────
 
-result = init_db()
-if not result.get("ok"):
-    st.error(f"Error al iniciar la base de datos: {result.get('error')}")
-    st.stop()
+# FIX: init_db solo se ejecuta una vez por sesión, no en cada rerun
+if "db_ready" not in st.session_state:
+    result = init_db()
+    if not result.get("ok"):
+        st.error(f"Error al iniciar la base de datos: {result.get('error')}")
+        st.stop()
+    st.session_state.db_ready = True
 
 if _detectar_qr():
     pass
