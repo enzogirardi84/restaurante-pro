@@ -89,6 +89,11 @@ def inject_styles() -> None:
                 position: absolute !important;
                 opacity: 0 !important;
             }
+            /* Hide the keyboard_double_arrow_left Material icon inside the sidebar toggle */
+            [data-testid="collapsedControl"] [data-testid="stIconMaterial"],
+            button[data-testid="collapsedControl"] [data-testid="stIconMaterial"] {
+                display: none !important;
+            }
             section[data-testid="stSidebar"] .st-emotion-cache-1cypcdb,
             section[data-testid="stSidebar"] .st-emotion-cache-6qob1r {
                 background: var(--nav) !important;
