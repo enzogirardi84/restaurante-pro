@@ -2816,39 +2816,44 @@ def page_mesas() -> None:
     with c2:
         origen = st.selectbox("Mesa origen", mesas, format_func=lambda m: f"Mesa {m['numero_mesa']}", key="mesa_origen")
         destino = st.selectbox("Mesa destino", mesas, format_func=lambda m: f"Mesa {m['numero_mesa']}", key="mesa_destino")
-        if st.button("Mover / unir consumos", use_container_width=True, disabled=origen["id_mesa"] == destino["id_mesa"]):
-            execute("UPDATE pedidos_cabecera SET id_mesa = ? WHERE id_mesa = ? AND estado_comanda IN ('pendiente','en_cocina','listo','entregado')", (destino["id_mesa"], origen["id_mesa"]))
-            execute("UPDATE mesas SET estado = 'libre' WHERE id_mesa = ?", (origen["id_mesa"],))
-            execute("UPDATE mesas SET estado = 'ocupada' WHERE id_mesa = ?", (destino["id_mesa"],))
-            registrar_auditoria("mesas", "mover_unir", f"{origen['numero_mesa']} -> {destino['numero_mesa']}")
-            st.rerun()
+        same_table = (origen is not None and destino is not None and origen["id_mesa"] == destino["id_mesa"])
+        if st.button("Mover / unir consumos", use_container_width=True, disabled=same_table):
+            if origen is not None and destino is not None:
+                execute("UPDATE pedidos_cabecera SET id_mesa = ? WHERE id_mesa = ? AND estado_comanda IN ('pendiente','en_cocina','listo','entregado')", (destino["id_mesa"], origen["id_mesa"]))
+                execute("UPDATE mesas SET estado = 'libre' WHERE id_mesa = ?", (origen["id_mesa"],))
+                execute("UPDATE mesas SET estado = 'ocupada' WHERE id_mesa = ?", (destino["id_mesa"],))
+                registrar_auditoria("mesas", "mover_unir", f"{origen['numero_mesa']} -> {destino['numero_mesa']}")
+                st.rerun()
     with c3:
         mesa_accion = st.selectbox("Accion sobre mesa", mesas, format_func=lambda m: f"Mesa {m['numero_mesa']}", key="mesa_accion")
         estado = st.selectbox("Nuevo estado", ["libre", "ocupada", "esperando_cuenta"])
         if st.button("Cambiar estado", use_container_width=True):
-            execute("UPDATE mesas SET estado = ? WHERE id_mesa = ?", (estado, mesa_accion["id_mesa"]))
-            registrar_auditoria("mesas", "cambio_estado", f"{mesa_accion['numero_mesa']} {estado}")
-            st.rerun()
+            if mesa_accion is not None:
+                execute("UPDATE mesas SET estado = ? WHERE id_mesa = ?", (estado, mesa_accion["id_mesa"]))
+                registrar_auditoria("mesas", "cambio_estado", f"{mesa_accion['numero_mesa']} {estado}")
+                st.rerun()
 
     st.divider()
     st.subheader("Historial y anulaciones")
     mesa_hist = st.selectbox("Mesa para revisar", mesas, format_func=lambda m: f"Mesa {m['numero_mesa']}", key="mesa_historial")
-    historial = pd.DataFrame(rows("""
-        SELECT pc.id_pedido, pc.fecha_hora, pc.estado_comanda,
-               u.nombre || ' ' || u.apellido AS mozo,
-               pm.nombre AS producto,
-               pd.cantidad,
-               COALESCE(pd.cantidad_cobrada, 0) AS cobrada,
-               COALESCE(pd.cantidad_anulada, 0) AS anulada,
-               COALESCE(pd.motivo_anulacion, '') AS motivo
-        FROM pedidos_cabecera pc
-        JOIN usuarios u ON u.id_usuario = pc.id_usuario
-        JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
-        JOIN productos_menu pm ON pm.id_producto = pd.id_producto
-        WHERE pc.id_mesa = ?
-        ORDER BY pc.fecha_hora DESC, pd.id_detalle
-        LIMIT 80
-    """, (mesa_hist["id_mesa"],)))
+    historial = pd.DataFrame()
+    if mesa_hist is not None:
+        historial = pd.DataFrame(rows("""
+            SELECT pc.id_pedido, pc.fecha_hora, pc.estado_comanda,
+                   u.nombre || ' ' || u.apellido AS mozo,
+                   pm.nombre AS producto,
+                   pd.cantidad,
+                   COALESCE(pd.cantidad_cobrada, 0) AS cobrada,
+                   COALESCE(pd.cantidad_anulada, 0) AS anulada,
+                   COALESCE(pd.motivo_anulacion, '') AS motivo
+            FROM pedidos_cabecera pc
+            JOIN usuarios u ON u.id_usuario = pc.id_usuario
+            JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
+            JOIN productos_menu pm ON pm.id_producto = pd.id_producto
+            WHERE pc.id_mesa = ?
+            ORDER BY pc.fecha_hora DESC, pd.id_detalle
+            LIMIT 80
+        """, (mesa_hist["id_mesa"],)))
     if not historial.empty:
         st.dataframe(historial, hide_index=True, use_container_width=True)
     else:
