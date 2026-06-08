@@ -59,6 +59,7 @@ from components.facturacion_electronica import page_facturacion_electronica
 from views.backups import page_backups
 from views.mesas import page_mesas
 from views.sistema import page_sistema
+from utils.pdf_generator import data_table, date_fmt, generate_pdf, money as pdf_money
 
 
 APP_TITLE = app_name("Restaurante Pro")
@@ -3278,6 +3279,11 @@ def _render_export_section(desde: str, hasta: str,
         "proveedores": pd.DataFrame(rows("SELECT nombre, telefono, email, notas, cuit_rut, activo FROM proveedores ORDER BY nombre")),
         "caja": pd.DataFrame(rows("SELECT * FROM cajas_diarias ORDER BY fecha_apertura DESC")),
     }
+
+    pdf = _pdf_reporte_analisis(desde, hasta, ventas, productos, mozos, medios, total, pedidos, resumen)
+    st.download_button("📄 Descargar reporte analisis PDF", pdf,
+                       file_name=f"reporte_analisis_{desde}_{hasta}.pdf",
+                       mime="application/pdf", use_container_width=True)
     xlsx = excel_bytes(resumen)
     if xlsx:
         st.download_button(
@@ -3317,6 +3323,60 @@ def _render_export_section(desde: str, hasta: str,
     st.download_button("ðŸ–¨ Reporte HTML (imprimible)", html_str.encode("utf-8"),
                        file_name=f"reporte_{desde}_{hasta}.html",
                        mime="text/html", use_container_width=True)
+
+
+def _pdf_reporte_analisis(desde, hasta, ventas, productos, mozos, medios, total, pedidos, resumen):
+    ticket_prom = total / pedidos if pedidos else 0
+    sections = []
+
+    if not ventas.empty:
+        rows_tbl = [[str(r["dia"]), money(r["subtotal"]), money(r["total_cobrado"])]
+                     for _, r in ventas.iterrows()]
+        sections.append(("Ventas diarias",
+                         data_table(["Fecha", "Subtotal", "Total cobrado"], rows_tbl, right_align_cols={1, 2})))
+
+    if not productos.empty:
+        rows_tbl = [[r["producto"], str(int(r["cantidad"])), money(r["ingreso"])]
+                     for _, r in productos.iterrows()]
+        sections.append(("Top 10 productos",
+                         data_table(["Producto", "Cantidad", "Ingreso"], rows_tbl, right_align_cols={1, 2})))
+
+    if not mozos.empty:
+        rows_tbl = [[r["mozo"], str(r["pedidos"]), money(r["ventas"])]
+                     for _, r in mozos.iterrows()]
+        sections.append(("Ventas por mozo",
+                         data_table(["Mozo", "Pedidos", "Ventas"], rows_tbl, right_align_cols={1, 2})))
+
+    if not medios.empty:
+        rows_tbl = [[r["medio_pago"], str(r["pagos"]), money(r["total"])]
+                     for _, r in medios.iterrows()]
+        sections.append(("Medios de pago",
+                         data_table(["Medio", "Pagos", "Total"], rows_tbl, right_align_cols={1, 2})))
+
+    for key in ["stock", "movimientos_stock", "proveedores", "caja"]:
+        df = resumen.get(key)
+        if df is not None and not df.empty:
+            rows_tbl = [[str(v) for v in r] for r in df.head(50).to_numpy()]
+            headers = [str(c) for c in df.columns]
+            sections.append((key.replace("_", " ").title(),
+                             data_table(headers, rows_tbl, right_align_cols=set())))
+
+    usuario = st.session_state.get("usuario", {})
+    nombre = f"{usuario.get('nombre', '')} {usuario.get('apellido', '')}".strip() or "sistema"
+
+    return generate_pdf(
+        title="Reporte de analisis",
+        subtitle=f"Periodo: {desde} a {hasta}",
+        kpis=[
+            ("Ventas totales", money(total)),
+            ("Pedidos", str(int(pedidos))),
+            ("Ticket promedio", money(ticket_prom)),
+            ("Dias con ventas", str(len(ventas))),
+        ],
+        sections=sections,
+        usuario=nombre,
+        auditoria=True,
+    )
 
 
 def _render_reporte_comparativa():
@@ -3493,6 +3553,76 @@ def page_panel() -> None:
     """))
     st.subheader("Ultimos eventos")
     st.dataframe(eventos, hide_index=True, use_container_width=True)
+
+    pdf = _pdf_panel(estados, pedidos, caja, stock_bajo, ventas_hoy, turnos_activos, staff, mesas_activas, eventos)
+    st.download_button("📄 Descargar resumen PDF", pdf,
+                       file_name=f"panel_{datetime.now():%Y%m%d_%H%M}.pdf",
+                       mime="application/pdf", use_container_width=True)
+
+
+def _pdf_panel(estados, pedidos, caja, stock_bajo, ventas_hoy, turnos_activos, staff, mesas_activas, eventos):
+    today = datetime.now().date().isoformat()
+    sections = []
+
+    rows_tbl = [
+        ["Libres", str(estados.get("libres", 0))],
+        ["Ocupadas", str(estados.get("ocupadas", 0))],
+        ["En cuenta", str(estados.get("cuenta", 0))],
+        ["Pendientes cocina", str(pedidos.get("pendientes", 0))],
+        ["En cocina", str(pedidos.get("cocina", 0))],
+        ["Listos", str(pedidos.get("listos", 0))],
+        ["Stock bajo", str(stock_bajo)],
+        ["Ventas hoy", money(ventas_hoy)],
+        ["Turnos activos", str(turnos_activos)],
+    ]
+    sections.append(("Resumen de indicadores",
+                     data_table(["Indicador", "Valor"], rows_tbl, right_align_cols={1})))
+
+    if caja:
+        rows_caja = [
+            ["Caja Nro", str(caja.get("id_caja", ""))],
+            ["Cajero", caja.get("cajero", "-")],
+            ["Monto apertura", money(caja.get("monto_apertura", 0))],
+            ["Ventas acumuladas", money(caja.get("monto_ventas", 0))],
+        ]
+        sections.append(("Caja", data_table(["Campo", "Valor"], rows_caja, right_align_cols={1})))
+
+    if not staff.empty:
+        rows_staff = [[r["rol"], str(r["activos"])] for _, r in staff.iterrows()]
+        sections.append(("Personal activo", data_table(["Rol", "Activos"], rows_staff, right_align_cols={1})))
+
+    if not mesas_activas.empty:
+        rows_mesas = [
+            [str(r["mesa"]), r["estado"], str(r["pedidos"]), money(r["subtotal"])]
+            for _, r in mesas_activas.head(20).iterrows()
+        ]
+        sections.append(("Mesas activas",
+                         data_table(["Mesa", "Estado", "Pedidos", "Subtotal"], rows_mesas, right_align_cols={2, 3})))
+
+    if not eventos.empty:
+        rows_ev = [
+            [str(r["fecha_hora"])[:19], r["modulo"], r["accion"]]
+            for _, r in eventos.iterrows()
+        ]
+        sections.append(("Ultimos eventos del sistema",
+                         data_table(["Fecha", "Modulo", "Accion"], rows_ev, right_align_cols=set())))
+
+    usuario = st.session_state.get("usuario", {})
+    nombre = f"{usuario.get('nombre', '')} {usuario.get('apellido', '')}".strip() or "sistema"
+
+    return generate_pdf(
+        title="Panel de control - Resumen ejecutivo",
+        subtitle=f"Fecha: {today}",
+        kpis=[
+            ("Ventas hoy", money(ventas_hoy)),
+            ("Stock bajo", str(stock_bajo)),
+            ("Turnos activos", str(turnos_activos)),
+            ("Mesas ocupadas", str(estados.get("ocupadas", 0))),
+        ],
+        sections=sections,
+        usuario=nombre,
+        auditoria=True,
+    )
 
 
 def public_status_page() -> None:

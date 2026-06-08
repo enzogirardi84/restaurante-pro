@@ -1,13 +1,25 @@
 """
-reportes.py — Dashboard gerencial con métricas y gráficos BI.
-Lee de la misma base SQLite y presenta analítica para la dirección.
+reportes.py — Dashboard gerencial con metricas y graficos BI + exportacion PDF corporativa.
+Genera PDFs profesionales con marca, paginacion, zebra striping y bloques de auditoria.
 """
 from __future__ import annotations
+
+from datetime import datetime
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
+from components.helpers import money
 from database import get_connection, init_db
+from utils.pdf_generator import (
+    auditoria_block,
+    cell,
+    cell_money,
+    data_table,
+    date_fmt,
+    generate_pdf,
+)
 
 st.set_page_config(page_title="Dashboard Gerencial", layout="wide",
                    initial_sidebar_state="collapsed")
@@ -18,11 +30,12 @@ COLOR_POSITIVO = "#4caf50"
 COLOR_NEGATIVO = "#e53935"
 COLOR_PRIMARY  = "#1e88e5"
 
+
 # ── CONSULTAS SQL ─────────────────────────────────────────────────────
 
 @st.cache_data(ttl=30)
 def query_metricas() -> dict:
-    """Métricas principales del tablero."""
+    """Metricas principales del tablero."""
     conn = get_connection()
     try:
         data = conn.execute("""
@@ -59,11 +72,11 @@ def query_metricas() -> dict:
 
 @st.cache_data(ttl=30)
 def query_ventas_diarias() -> pd.DataFrame:
-    """Recaudación diaria (usa precio_unitario_facturado)."""
+    """Recaudacion diaria."""
     conn = get_connection()
     try:
         return pd.read_sql_query("""
-            SELECT DATE(pc.fecha_hora)                                   AS dia,
+            SELECT DATE(pc.fecha_hora) AS dia,
                    ROUND(SUM(pd.cantidad * COALESCE(pd.precio_unitario_facturado, pm.precio_venta)), 0) AS total
             FROM pedidos_cabecera pc
             JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
@@ -78,7 +91,7 @@ def query_ventas_diarias() -> pd.DataFrame:
 
 @st.cache_data(ttl=30)
 def query_cajas() -> pd.DataFrame:
-    """Auditoría de cajas con diferencia calculada."""
+    """Auditoria de cajas con diferencia calculada."""
     conn = get_connection()
     try:
         df = pd.read_sql_query("""
@@ -102,7 +115,7 @@ def query_cajas() -> pd.DataFrame:
 
 @st.cache_data(ttl=30)
 def query_alertas_stock() -> pd.DataFrame:
-    """Insumos por debajo del mínimo, por depósito."""
+    """Insumos por debajo del minimo, por deposito."""
     conn = get_connection()
     try:
         return pd.read_sql_query("""
@@ -123,7 +136,7 @@ def query_alertas_stock() -> pd.DataFrame:
 
 @st.cache_data(ttl=30)
 def query_top5() -> pd.DataFrame:
-    """Ranking de productos más vendidos (pedidos cobrados)."""
+    """Ranking de productos mas vendidos."""
     conn = get_connection()
     try:
         return pd.read_sql_query("""
@@ -142,14 +155,97 @@ def query_top5() -> pd.DataFrame:
         conn.close()
 
 
+# ── GENERACION PDF ──────────────────────────────────────────────────────
+
+def _pdf_reporte_general(m: dict, df_ventas: pd.DataFrame, df_cajas: pd.DataFrame,
+                         df_top: pd.DataFrame, df_alertas: pd.DataFrame) -> bytes:
+    """Genera PDF completo del dashboard gerencial."""
+    sections = []
+
+    # 1. Ventas diarias
+    if not df_ventas.empty:
+        rows_tbl = [
+            [str(r["dia"]), money(r["total"])]
+            for _, r in df_ventas.iterrows()
+        ]
+        sections.append((
+            "Ventas diarias",
+            data_table(["Fecha", "Total"], rows_tbl, right_align_cols={1}),
+        ))
+
+    # 2. Top 5 productos
+    if not df_top.empty:
+        rows_tbl = [
+            [r["producto"], str(int(r["total_vendido"])), money(r["ingreso"])]
+            for _, r in df_top.iterrows()
+        ]
+        sections.append((
+            "Top 5 productos mas vendidos",
+            data_table(["Producto", "Cantidad", "Ingreso"], rows_tbl, right_align_cols={1, 2}),
+        ))
+
+    # 3. Auditoria de cajas
+    if not df_cajas.empty:
+        rows_tbl = [
+            [
+                str(r["id_caja"]),
+                r["cajero"],
+                str(r["fecha_apertura"])[:10] if r["fecha_apertura"] else "-",
+                money(r["monto_apertura"]),
+                money(r["monto_ventas"]),
+                money(r["monto_cierre_real"]) if pd.notna(r["monto_cierre_real"]) else "-",
+                money(r["diferencia"]) if pd.notna(r.get("diferencia")) else "-",
+            ]
+            for _, r in df_cajas.head(20).iterrows()
+        ]
+        sections.append((
+            "Auditoria de cajas (ultimos 20 movimientos)",
+            data_table(
+                ["Nro", "Cajero", "Apertura", "Apertura $", "Ventas $", "Real $", "Dif. $"],
+                rows_tbl,
+                right_align_cols={3, 4, 5, 6},
+            ),
+        ))
+
+    # 4. Alertas de stock
+    if not df_alertas.empty:
+        rows_tbl = [
+            [r["deposito"], r["insumo"],
+             f"{r['stock_actual']:.0f} {r['unidad_medida']}",
+             f"{r['stock_minimo']:.0f} {r['unidad_medida']}"]
+            for _, r in df_alertas.iterrows()
+        ]
+        sections.append((
+            "Alertas de inventario",
+            data_table(["Deposito", "Insumo", "Stock actual", "Minimo requerido"],
+                       rows_tbl, right_align_cols={2, 3}),
+        ))
+
+    kpis = [
+        ("Ingreso total", money(m["ingreso_total"])),
+        ("Pedidos", str(m["total_pedidos"])),
+        ("Mesas atendidas", str(m["mesas_atendidas"])),
+        ("Ticket promedio", money(m["ticket_promedio"])),
+        ("Alertas stock", str(m["alertas_stock"])),
+    ]
+
+    return generate_pdf(
+        title="Reporte General - Dashboard Gerencial",
+        kpis=kpis,
+        sections=sections,
+        usuario=st.session_state.get("usuario", {}).get("nombre", "sistema"),
+        auditoria=True,
+    )
+
+
 # ── RENDER ────────────────────────────────────────────────────────────
 
 st.markdown("<h1 style='text-align:center'>📊  Dashboard Gerencial</h1>",
             unsafe_allow_html=True)
 st.caption("Datos alimentados desde el sistema transaccional · "
-           "Actualización automática cada 30 segundos")
+           "Actualizacion automatica cada 30 segundos")
 
-# ── Fila de métricas ──────────────────────────────────────────────────
+# ── Fila de metricas ──────────────────────────────────────────────────
 m = query_metricas()
 
 col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
@@ -164,28 +260,28 @@ with col_m4:
 with col_m5:
     delta_color = "off" if m["alertas_stock"] == 0 else "inverse"
     st.metric("⚠️ Alertas de stock", str(m["alertas_stock"]),
-              delta=f"{m['alertas_stock']} insumos críticos",
+              delta=f"{m['alertas_stock']} insumos criticos",
               delta_color=delta_color)
 
 st.divider()
 
-# ── Gráfico de ventas diarias ─────────────────────────────────────────
+# ── Grafico de ventas diarias ─────────────────────────────────────────
 df_ventas = query_ventas_diarias()
 if not df_ventas.empty:
-    st.markdown("### 📈  Ventas diarias (histórico)")
+    st.markdown("### 📈  Ventas diarias (historico)")
     fig = px.bar(df_ventas, x="dia", y="total",
                  labels={"dia": "", "total": "$"},
                  color_discrete_sequence=[COLOR_PRIMARY])
     fig.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0))
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("Aún no hay ventas cobradas registradas.")
+    st.info("Aun no hay ventas cobradas registradas.")
 
-# ── Segunda fila: Top 5 + Auditoría de cajas ──────────────────────────
+# ── Segunda fila: Top 5 + Auditoria de cajas ──────────────────────────
 col_left, col_right = st.columns(2)
 
 with col_left:
-    st.markdown("### 🏆  Top 5 productos más vendidos")
+    st.markdown("### 🏆  Top 5 productos mas vendidos")
     df_top = query_top5()
     if not df_top.empty:
         fig = px.pie(df_top, names="producto", values="total_vendido",
@@ -198,7 +294,7 @@ with col_left:
         st.info("Sin datos de ventas.")
 
 with col_right:
-    st.markdown("### 🧾  Auditoría de arqueo de caja")
+    st.markdown("### 🧾  Auditoria de arqueo de caja")
     df_cajas = query_cajas()
     if not df_cajas.empty:
         def _color_diferencia(val):
@@ -224,30 +320,42 @@ with col_right:
 st.divider()
 
 # ── Alertas de inventario ─────────────────────────────────────────────
-st.markdown("### ⚠️  Alertas de inventario por depósito")
+st.markdown("### ⚠️  Alertas de inventario por deposito")
 df_alertas = query_alertas_stock()
 if not df_alertas.empty:
     for _, row in df_alertas.iterrows():
         st.warning(
             f"**{row['deposito']}** — "
             f"*{row['insumo']}*: solo **{row['stock_actual']:.0f} {row['unidad_medida']}** "
-            f"(mínimo requerido: {row['stock_minimo']:.0f} {row['unidad_medida']})",
-            icon="🥕",
+            f"(minimo requerido: {row['stock_minimo']:.0f} {row['unidad_medida']})",
+            icon=":material/warning:",
         )
 else:
-    st.success("✅  Todos los depósitos tienen stock suficiente por encima del mínimo.")
+    st.success("✅  Todos los depositos tienen stock suficiente por encima del minimo.")
 
 st.divider()
+
+# ── Exportacion PDF ───────────────────────────────────────────────────
 st.markdown("### Exportar datos")
 
-col_e1, col_e2 = st.columns(2)
+col_e1, col_e2, col_e3 = st.columns(3)
+
+pdf_bytes = _pdf_reporte_general(m, df_ventas, df_cajas, df_top, df_alertas)
+col_e1.download_button(
+    "📄 Descargar reporte PDF",
+    pdf_bytes,
+    file_name=f"reporte_gerencial_{datetime.now():%Y%m%d_%H%M}.pdf",
+    mime="application/pdf",
+    use_container_width=True,
+)
+
 if not df_ventas.empty:
     csv = df_ventas.to_csv(index=False).encode("utf-8-sig")
-    col_e1.download_button("Descargar ventas_diarias.csv", csv,
+    col_e2.download_button("Descargar ventas_diarias.csv", csv,
                            file_name="ventas_diarias.csv", mime="text/csv",
                            use_container_width=True)
 if not df_cajas.empty:
     csv = df_cajas.to_csv(index=False).encode("utf-8-sig")
-    col_e2.download_button("Descargar auditoria_cajas.csv", csv,
+    col_e3.download_button("Descargar auditoria_cajas.csv", csv,
                            file_name="auditoria_cajas.csv", mime="text/csv",
                            use_container_width=True)
