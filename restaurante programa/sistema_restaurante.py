@@ -3383,11 +3383,11 @@ def page_panel() -> None:
         WHERE estado_comanda IN ('pendiente','en_cocina','listo')
     """) or {"pendientes": 0, "cocina": 0, "listos": 0}
     caja = caja_abierta()
-    stock_bajo = one("""
+    stock_bajo = (one("""
         SELECT COUNT(*) AS total
         FROM insumos
         WHERE stock_actual <= stock_minimo
-    """)["total"]
+    """) or {"total": 0})["total"]
 
     hoy = datetime.now().date().isoformat()
     ventas_hoy = one("""
@@ -3395,10 +3395,10 @@ def page_panel() -> None:
         FROM pagos_mesa
         WHERE DATE(fecha_hora) = ?
     """, (hoy,))["total"]
-    turnos_activos = one("""
+    turnos_activos = (one("""
         SELECT COUNT(*) AS total FROM turnos_personal
         WHERE fecha = ? AND estado = 'activo'
-    """, (hoy,))["total"]
+    """, (hoy,)) or {"total": 0})["total"]
 
     top = st.columns(8)
     with top[0]:
