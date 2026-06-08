@@ -30,15 +30,10 @@ def _layout_vintage(fig: go.Figure) -> go.Figure:
     return fig
 
 
-def render() -> None:
-    st.markdown("<h1 style='text-align:center'>📊  Dashboard Gerencial</h1>",
-                unsafe_allow_html=True)
-    st.markdown(
-        "<p style='text-align:center;font-style:italic;color:#2C221E'>"
-        "Analítica · Inventario · Predicciones</p>",
-        unsafe_allow_html=True,
-    )
+# ── Queries cacheadas (TTL 60 segundos) ──────────────────────────────
 
+@st.cache_data(ttl=60)
+def _query_metricas() -> dict:
     conn = get_connection_direct()
     try:
         cur = conn.execute("""
@@ -50,20 +45,129 @@ def render() -> None:
             JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
             WHERE pc.estado_comanda = 'cobrado'
         """)
-        row = cur.fetchone()
-        if row is None:
-            row = {"pedidos": 0, "ingresos": 0, "ticket_prom": 0}
-        m = row
+        row = cur.fetchone() or {"pedidos": 0, "ingresos": 0, "ticket_prom": 0}
 
-        cur = conn.execute("""
+        cur2 = conn.execute("""
             SELECT COUNT(*) AS cnt FROM stock_deposito sd
             JOIN insumos i ON i.id_insumo = sd.id_insumo
             WHERE sd.cantidad_disponible <= i.stock_minimo
         """)
-        row2 = cur.fetchone()
+        row2 = cur2.fetchone()
         alertas_cnt = row2["cnt"] if row2 else 0
+        return {"m": dict(row), "alertas_cnt": alertas_cnt}
     finally:
         conn.close()
+
+
+@st.cache_data(ttl=60)
+def _query_ventas_diarias() -> pd.DataFrame:
+    conn = get_connection_direct()
+    try:
+        return pd.read_sql_query("""
+            SELECT DATE(pc.fecha_hora) AS dia,
+                   ROUND(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total
+            FROM pedidos_cabecera pc
+            JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
+            WHERE pc.estado_comanda = 'cobrado'
+            GROUP BY dia ORDER BY dia
+        """, conn)
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=60)
+def _query_top5() -> pd.DataFrame:
+    conn = get_connection_direct()
+    try:
+        return pd.read_sql_query("""
+            SELECT pm.nombre, SUM(pd.cantidad) AS total_vendido
+            FROM pedido_detalle pd
+            JOIN pedidos_cabecera pc ON pc.id_pedido = pd.id_pedido
+            JOIN productos_menu pm ON pm.id_producto = pd.id_producto
+            WHERE pc.estado_comanda = 'cobrado'
+            GROUP BY pm.id_producto, pm.nombre
+            ORDER BY total_vendido DESC LIMIT 5
+        """, conn)
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=60)
+def _query_arqueo() -> pd.DataFrame:
+    conn = get_connection_direct()
+    try:
+        return pd.read_sql_query("""
+            SELECT cd.id_caja,
+                   u.nombre || ' ' || u.apellido AS cajero,
+                   cd.fecha_apertura, cd.monto_apertura,
+                   cd.monto_ventas, cd.monto_cierre_real
+            FROM cajas_diarias cd
+            JOIN usuarios u ON u.id_usuario = cd.id_usuario_cajero
+            ORDER BY cd.fecha_apertura DESC
+        """, conn)
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=60)
+def _query_alertas_inventario() -> list:
+    conn = get_connection_direct()
+    try:
+        cur = conn.execute("""
+            SELECT d.nombre_deposito AS dep, i.nombre AS ins,
+                   sd.cantidad_disponible AS stock, i.stock_minimo,
+                   i.unidad_medida, i.url_imagen
+            FROM stock_deposito sd
+            JOIN insumos i ON i.id_insumo = sd.id_insumo
+            JOIN depositos d ON d.id_deposito = sd.id_deposito
+            WHERE sd.cantidad_disponible <= i.stock_minimo
+            ORDER BY d.nombre_deposito, i.nombre
+        """)
+        return cur.fetchall()
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=60)
+def _query_caja_activa() -> dict | None:
+    conn = get_connection_direct()
+    try:
+        cur = conn.execute("""
+            SELECT cd.id_caja, cd.fecha_apertura, cd.fecha_cierre,
+                   cd.monto_apertura, cd.monto_ventas, cd.monto_cierre_real,
+                   cd.estado_caja,
+                   u.nombre || ' ' || u.apellido AS cajero
+            FROM cajas_diarias cd
+            JOIN usuarios u ON u.id_usuario = cd.id_usuario_cajero
+            WHERE cd.estado_caja = 'abierta'
+            ORDER BY cd.fecha_apertura DESC LIMIT 1
+        """)
+        return cur.fetchone()
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300)
+def _query_predicciones() -> pd.DataFrame:
+    from components.ia_predictiva import generar_sugerencia_compra_tres_dias
+    return generar_sugerencia_compra_tres_dias()
+
+
+# ── Render principal ──────────────────────────────────────────────────
+
+def render() -> None:
+    st.markdown("<h1 style='text-align:center'>📊  Dashboard Gerencial</h1>",
+                unsafe_allow_html=True)
+    st.markdown(
+        "<p style='text-align:center;font-style:italic;color:#2C221E'>"
+        "Analítica · Inventario · Predicciones</p>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Métricas principales ──
+    data = _query_metricas()
+    m = data["m"]
+    alertas_cnt = data["alertas_cnt"]
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -77,20 +181,8 @@ def render() -> None:
 
     st.divider()
 
-    # ── Ventas diarias (Bordó vintage) ──
-    conn = get_connection_direct()
-    try:
-        df = pd.read_sql_query("""
-            SELECT DATE(pc.fecha_hora) AS dia,
-                   ROUND(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total
-            FROM pedidos_cabecera pc
-            JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
-            WHERE pc.estado_comanda = 'cobrado'
-            GROUP BY dia ORDER BY dia
-        """, conn)
-    finally:
-        conn.close()
-
+    # ── Ventas diarias ──
+    df = _query_ventas_diarias()
     if not df.empty:
         st.markdown("### 📈  Ventas diarias")
         fig = px.bar(df, x="dia", y="total",
@@ -105,20 +197,7 @@ def render() -> None:
 
     with col_a:
         st.markdown("### 🏆  Top 5 productos")
-        conn = get_connection_direct()
-        try:
-            df_top = pd.read_sql_query("""
-                SELECT pm.nombre, SUM(pd.cantidad) AS total_vendido
-                FROM pedido_detalle pd
-                JOIN pedidos_cabecera pc ON pc.id_pedido = pd.id_pedido
-                JOIN productos_menu pm ON pm.id_producto = pd.id_producto
-                WHERE pc.estado_comanda = 'cobrado'
-                GROUP BY pm.id_producto, pm.nombre
-                ORDER BY total_vendido DESC LIMIT 5
-            """, conn)
-        finally:
-            conn.close()
-
+        df_top = _query_top5()
         if not df_top.empty:
             fig = px.pie(df_top, names="nombre", values="total_vendido",
                          hole=0.4, color_discrete_sequence=PALETTA_TIERRA)
@@ -130,20 +209,7 @@ def render() -> None:
 
     with col_b:
         st.markdown("### 🧾  Arqueo de caja")
-        conn = get_connection_direct()
-        try:
-            df_caj = pd.read_sql_query("""
-                SELECT cd.id_caja,
-                       u.nombre || ' ' || u.apellido AS cajero,
-                       cd.fecha_apertura, cd.monto_apertura,
-                       cd.monto_ventas, cd.monto_cierre_real
-                FROM cajas_diarias cd
-                JOIN usuarios u ON u.id_usuario = cd.id_usuario_cajero
-                ORDER BY cd.fecha_apertura DESC
-            """, conn)
-        finally:
-            conn.close()
-
+        df_caj = _query_arqueo()
         if not df_caj.empty:
             df_caj["diferencia"] = df_caj["monto_cierre_real"] - df_caj["monto_ventas"]
             cols = {"id_caja": "#", "cajero": "Cajero", "fecha_apertura": "Apertura",
@@ -165,21 +231,7 @@ def render() -> None:
 
     # ── Alertas de inventario ──
     st.markdown("### ⚠️  Alertas de inventario")
-    conn = get_connection_direct()
-    try:
-        cur = conn.execute("""
-            SELECT d.nombre_deposito AS dep, i.nombre AS ins,
-                   sd.cantidad_disponible AS stock, i.stock_minimo,
-                   i.unidad_medida, i.url_imagen
-            FROM stock_deposito sd
-            JOIN insumos i ON i.id_insumo = sd.id_insumo
-            JOIN depositos d ON d.id_deposito = sd.id_deposito
-            WHERE sd.cantidad_disponible <= i.stock_minimo
-            ORDER BY d.nombre_deposito, i.nombre
-        """)
-        alertas = cur.fetchall()
-    finally:
-        conn.close()
+    alertas = _query_alertas_inventario()
 
     if alertas:
         for a in alertas:
@@ -199,7 +251,7 @@ def render() -> None:
 
     st.divider()
 
-    # ── Predicciones IA ────────────────────────────────────────────────
+    # ── Predicciones IA ──
     st.markdown("## 🔮  Predicciones de Compra con IA")
     st.markdown(
         "<p style='font-style:italic;color:#2C221E'>"
@@ -208,9 +260,7 @@ def render() -> None:
         unsafe_allow_html=True,
     )
 
-    from components.ia_predictiva import generar_sugerencia_compra_tres_dias
-
-    df_ia = generar_sugerencia_compra_tres_dias()
+    df_ia = _query_predicciones()
 
     if df_ia.empty:
         alerta_vintage("Stock suficiente. No se requieren compras urgentes.", icono="✅")
@@ -241,25 +291,11 @@ def render() -> None:
 
     st.divider()
 
-    # ── Cierre de caja diario ──────────────────────────────────────────
+    # ── Cierre de caja diario ──
     st.markdown("## 🧮  Cierre de caja diario")
     st.caption("Arqueo: compare las ventas registradas con el dinero físico.")
 
-    conn = get_connection_direct()
-    try:
-        cur = conn.execute("""
-            SELECT cd.id_caja, cd.fecha_apertura, cd.fecha_cierre,
-                   cd.monto_apertura, cd.monto_ventas, cd.monto_cierre_real,
-                   cd.estado_caja,
-                   u.nombre || ' ' || u.apellido AS cajero
-            FROM cajas_diarias cd
-            JOIN usuarios u ON u.id_usuario = cd.id_usuario_cajero
-            WHERE cd.estado_caja = 'abierta'
-            ORDER BY cd.fecha_apertura DESC LIMIT 1
-        """)
-        caja_activa = cur.fetchone()
-    finally:
-        conn.close()
+    caja_activa = _query_caja_activa()
 
     if caja_activa:
         st.info(f"**Caja #{caja_activa['id_caja']}** — "
@@ -301,6 +337,10 @@ def render() -> None:
                     WHERE id_caja = ?
                 """, (monto_real, caja_activa["id_caja"]))
                 conn.commit()
+                # Limpiar caché para que refleje el cierre
+                _query_caja_activa.clear()
+                _query_arqueo.clear()
+                _query_metricas.clear()
                 st.balloons()
                 st.success(f"✅ Caja #{caja_activa['id_caja']} cerrada. "
                            f"Diferencia: ${diferencia:+,.0f}")
@@ -324,6 +364,8 @@ def render() -> None:
                         (1, monto_ini)
                     )
                     conn.commit()
+                    # Limpiar caché para que aparezca la nueva caja
+                    _query_caja_activa.clear()
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
