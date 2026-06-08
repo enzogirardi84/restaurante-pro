@@ -2859,7 +2859,9 @@ def page_mesas() -> None:
     else:
         st.info("Sin historial para esta mesa.")
 
-    pendientes = detalle_mesa_renglones(mesa_hist["id_mesa"])
+    pendientes = []
+    if mesa_hist is not None:
+        pendientes = detalle_mesa_renglones(mesa_hist["id_mesa"])
     if pendientes:
         st.subheader("Anular producto pendiente")
         renglon = st.selectbox(
@@ -2870,12 +2872,13 @@ def page_mesas() -> None:
         cantidad = st.number_input("Cantidad a anular", min_value=1, max_value=int(renglon["pendiente"]), value=1)
         motivo = st.text_input("Motivo de anulacion", placeholder="Error de carga, cliente cancela, cortesia...")
         if st.button("Anular seleccionado", type="primary", use_container_width=True):
-            res = anular_detalle(renglon["id_detalle"], int(cantidad), motivo.strip() or "Sin motivo")
-            if res["ok"]:
-                registrar_auditoria("mesas", "anulacion", f"{res['producto']} x{cantidad} mesa {mesa_hist['numero_mesa']}")
-                st.success("Producto anulado.")
-                st.rerun()
-            st.error(res["error"])
+            if mesa_hist is not None and renglon is not None:
+                res = anular_detalle(renglon["id_detalle"], int(cantidad), motivo.strip() or "Sin motivo")
+                if res["ok"]:
+                    registrar_auditoria("mesas", "anulacion", f"{res['producto']} x{cantidad} mesa {mesa_hist['numero_mesa']}")
+                    st.success("Producto anulado.")
+                    st.rerun()
+                st.error(res["error"])
 
 
 def _page_inventario_legacy_unused() -> None:
