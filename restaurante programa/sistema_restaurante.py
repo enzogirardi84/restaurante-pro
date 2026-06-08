@@ -1775,13 +1775,13 @@ def page_caja() -> None:
                     conn.close()
         with col_cierre:
             real = st.number_input("Monto contado real", min_value=0.0, step=100.0)
-            mov = one("""
+            mov = (one("""
                 SELECT
                     COALESCE(SUM(CASE WHEN tipo_movimiento = 'ingreso_venta' THEN monto ELSE 0 END), 0) AS ingresos,
                     COALESCE(SUM(CASE WHEN tipo_movimiento != 'ingreso_venta' THEN monto ELSE 0 END), 0) AS egresos
                 FROM movimientos_caja
                 WHERE id_caja = ?
-            """, (caja["id_caja"],))
+            """, (caja["id_caja"],)) or {"ingresos": 0, "egresos": 0})
             ingresos = float(mov["ingresos"] or 0)
             egresos = float(mov["egresos"] or 0)
             esperado = cash_expected(caja["monto_apertura"], ingresos, egresos)
@@ -3182,10 +3182,10 @@ def _render_reporte_analisis():
         ORDER BY dia
     """, params))
     total = float(ventas["subtotal"].sum()) if not ventas.empty else 0
-    pedidos = one("""
+    pedidos = (one("""
         SELECT COUNT(*) AS cnt FROM pagos_mesa
         WHERE DATE(fecha_hora) BETWEEN ? AND ?
-    """, params)["cnt"]
+    """, params) or {"cnt": 0})["cnt"]
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Ventas subtotal", money(total))
@@ -3390,11 +3390,11 @@ def page_panel() -> None:
     """) or {"total": 0})["total"]
 
     hoy = datetime.now().date().isoformat()
-    ventas_hoy = one("""
+    ventas_hoy = (one("""
         SELECT COALESCE(SUM(total), 0) AS total
         FROM pagos_mesa
         WHERE DATE(fecha_hora) = ?
-    """, (hoy,))["total"]
+    """, (hoy,)) or {"total": 0})["total"]
     turnos_activos = (one("""
         SELECT COUNT(*) AS total FROM turnos_personal
         WHERE fecha = ? AND estado = 'activo'
