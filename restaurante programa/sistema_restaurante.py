@@ -2297,7 +2297,12 @@ def page_usuarios() -> None:
                         INSERT INTO usuarios (nombre, apellido, rol, pin, activo)
                         VALUES (?, ?, ?, ?, ?)
                     """, (nombre.strip(), apellido.strip(), rol, pin.strip() or "0000", 1 if activo else 0))
-                    new_id = _gc().execute("SELECT MAX(id_usuario) FROM usuarios").fetchone()[0]
+                    _conn = _gc()
+                    try:
+                        row = _conn.execute("SELECT MAX(id_usuario) AS max_id FROM usuarios").fetchone()
+                        new_id = row["max_id"] if row and row["max_id"] else 0
+                    finally:
+                        _conn.close()
                     encolar_sync("usuarios", "INSERT", str(new_id), {
                         "nombre": nombre.strip(), "apellido": apellido.strip(),
                         "rol": rol, "pin": pin.strip() or "0000", "activo": 1,
