@@ -189,7 +189,7 @@ def inject_styles() -> None:
             /* Streamlit overrides */
             [data-testid="stAppViewContainer"] .stTextInput { position: relative; }
             [data-testid="stAppViewContainer"] .stTextInput input {
-                width: 100% !important; padding: 12px 12px 12px 40px !important;
+                width: 100% !important; padding: 12px 2.5rem 12px 2.5rem !important;
                 background: #f8f1e5 !important; border: 1px solid var(--color-borde) !important;
                 border-radius: 4px !important; font-size: 16px !important;
                 color: var(--color-cuero) !important;
@@ -200,15 +200,22 @@ def inject_styles() -> None:
                 border-color: var(--color-cuero) !important;
                 box-shadow: 0 0 0 2px rgba(93,58,46,0.15) !important;
             }
-            [data-testid="stAppViewContainer"] .stTextInput:first-of-type::before {
+            /* Icon wrapper: baseweb container wraps only the input (no label) → correct top:50% */
+            [data-testid="stAppViewContainer"] .stTextInput div[data-baseweb="input"] { position: relative; }
+            [data-testid="stAppViewContainer"] .stTextInput:first-of-type div[data-baseweb="input"]::before {
                 content: "\U0001F464"; position: absolute; left: 12px; top: 50%;
                 transform: translateY(-50%); z-index: 1; font-size: 16px;
                 opacity: 0.5; line-height: 1; pointer-events: none;
             }
-            [data-testid="stAppViewContainer"] .stTextInput:last-of-type::before {
+            [data-testid="stAppViewContainer"] .stTextInput:not(:first-of-type) div[data-baseweb="input"]::before {
                 content: "\U0001F512"; position: absolute; left: 12px; top: 50%;
                 transform: translateY(-50%); z-index: 1; font-size: 16px;
                 opacity: 0.5; line-height: 1; pointer-events: none;
+            }
+            /* Ensure eye toggle on password fields isn't overlapped */
+            [data-testid="stAppViewContainer"] .stTextInput input + div,
+            [data-testid="stAppViewContainer"] .stTextInput button {
+                z-index: 2; position: relative;
             }
             [data-testid="stAppViewContainer"] .stButton button[kind="primary"] {
                 width: 100% !important; background: var(--color-cuero) !important;

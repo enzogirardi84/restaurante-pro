@@ -2119,6 +2119,27 @@ def page_menu() -> None:
 
 def page_usuarios() -> None:
     title("Personal y accesos", "Alta de mozos, cocina, caja y administradores.")
+    # Override icon types for password fields in column layouts (Form 2)
+    st.markdown(
+        """
+        <style>
+        /* "Crear acceso" form: password fields in columns need lock icon */
+        form[data-testid="stForm"]:nth-of-type(2)
+            [data-testid="stHorizontalBlock"]:nth-of-type(2)
+            [data-testid="stTextInput"]
+            div[data-baseweb="input"]::before {
+            content: "\\U0001F512" !important;
+        }
+        form[data-testid="stForm"]:nth-of-type(2)
+            [data-testid="stHorizontalBlock"]:nth-of-type(1)
+            [data-testid="stTextInput"]
+            div[data-baseweb="input"]::before {
+            content: "\\U0001F464" !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     roles = ["mozo", "cocina", "caja", "administrador", "dueno"]
     personal = get_personal()
 
