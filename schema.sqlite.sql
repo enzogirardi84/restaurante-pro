@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS productos_menu (
     id_producto  INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre       TEXT NOT NULL,
     precio_venta REAL NOT NULL CHECK (precio_venta >= 0),
-    categoria    TEXT NOT NULL CHECK (categoria IN ('cocina', 'bebidas', 'postres')),
+    categoria    TEXT NOT NULL DEFAULT 'cocina',
     activo       INTEGER NOT NULL DEFAULT 1,
     url_imagen   TEXT DEFAULT ''
 );

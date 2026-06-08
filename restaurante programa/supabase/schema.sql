@@ -94,7 +94,7 @@ create table if not exists productos_menu (
     id_producto bigserial primary key,
     nombre text not null,
     precio_venta numeric not null check (precio_venta >= 0),
-    categoria text not null check (categoria in ('cocina', 'bebidas', 'postres')),
+    categoria text not null default 'cocina',
     activo integer not null default 1
 );
 

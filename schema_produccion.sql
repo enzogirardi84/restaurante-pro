@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS productos_menu (
     id_producto  SERIAL PRIMARY KEY,
     nombre       TEXT NOT NULL,
     precio_venta REAL NOT NULL CHECK (precio_venta >= 0),
-    categoria    TEXT NOT NULL CHECK (categoria IN ('cocina', 'bebidas', 'postres')),
+    categoria    TEXT NOT NULL DEFAULT 'cocina',
     activo       BOOLEAN NOT NULL DEFAULT TRUE,
     url_imagen   VARCHAR(255) DEFAULT ''   -- ruta a foto del plato (fallback a default_plato.jpg)
 );
