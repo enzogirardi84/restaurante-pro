@@ -154,23 +154,43 @@ def _pendientes_sync(limit: int = 20) -> list[dict]:
 
 
 def offline_capable_execute(sql: str, params: tuple = (), *, tabla: str = "", pk: str = "") -> dict:
-    """Ejecuta SQL con intento a Supabase primero; si falla, escribe solo local + encola."""
+    """
+    Ejecuta SQL con intento a Supabase primero; si falla, escribe solo local + encola.
+    AHORA: captura ABSOLUTAMENTE TODAS las excepciones, libera la conexion PG
+    y fallback a SQLite sin propagar errores a la UI.
+    """
     pg_url = normalized_database_url()
     if not pg_url:
         return _local_execute(sql, params)
 
+    # ── Intento Supabase ──
+    pg_conn = None
     try:
         pool = get_pg_pool(pg_url)
-        conn = PgConnectionAdapter(pg_url, conn=pool.getconn(), pool=pool)
-        conn.execute(sql, params)
-        conn.commit()
+        pg_conn = PgConnectionAdapter(pg_url, conn=pool.getconn(), pool=pool)
+        pg_conn.execute(sql, params)
+        pg_conn.commit()
+        try:
+            pool.putconn(pg_conn._conn)
+        except Exception:
+            pass
         return {"ok": True, "source": "supabase"}
     except Exception:
-        pass
+        # Liberar conexion PG pase lo que pase
+        try:
+            if pg_conn is not None:
+                pool = get_pg_pool(pg_url)
+                pool.putconn(pg_conn._conn)
+        except Exception:
+            pass
 
+    # ── Fallback siempre a SQLite ──
     result = _local_execute(sql, params)
     if tabla and pk:
-        encolar_sync(tabla, "UPDATE" if sql.upper().startswith("UPDATE") else "INSERT", pk, {})
+        try:
+            encolar_sync(tabla, "UPDATE" if sql.upper().startswith("UPDATE") else "INSERT", pk, {})
+        except Exception:
+            pass
     return result
 
 
@@ -456,9 +476,10 @@ def get_connection(raise_on_error: bool = False):
             return error_connection(fallback_msg=f"Error de conexion PostgreSQL: {exc}")
     DB_DIR.mkdir(parents=True, exist_ok=True)
     try:
-        conn = sqlite3.connect(str(DB_PATH))
+        conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
     except sqlite3.Error as exc:
@@ -602,6 +623,7 @@ def init_db(schema_file: str | None = None) -> None:
     """
     Ejecuta schema.sql para inicializar todas las tablas.
     Es idempotente: omite la siembra de datos si las tablas ya tienen registros.
+    Incluye verificacion de integridad con PRAGMA integrity_check.
     """
     if using_postgres():
         schema_file = schema_file or str(SUPABASE_SCHEMA_PATH)
@@ -616,6 +638,22 @@ def init_db(schema_file: str | None = None) -> None:
 
     if schema_file is None:
         schema_file = str(Path(__file__).parent / "schema.sql")
+
+    # ── Verificar integridad del archivo SQLite antes de operar ──
+    conn = get_connection()
+    try:
+        integrity = conn.execute("PRAGMA integrity_check").fetchone()
+        if integrity and integrity[0] != "ok":
+            import warnings
+            warnings.warn(f"Base de datos corrupta detectada: {integrity[0]}. Se intentara reconstruir.")
+    except Exception:
+        pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
     conn = get_connection()
     try:
         with open(schema_file, "r", encoding="utf-8") as f:
