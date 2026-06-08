@@ -198,6 +198,31 @@ def database_label() -> str:
     return "Supabase/PostgreSQL" if using_postgres() else str(DB_PATH)
 
 
+def get_db_type() -> str:
+    return "postgres" if using_postgres() else "sqlite"
+
+
+def execute_query(sql: str, params: tuple = (), fetch: bool = False) -> list[dict] | None:
+    """
+    Ejecuta una consulta parametrizada de forma segura.
+    Si fetch=True retorna list[dict]; si fetch=False retorna None (INSERT/UPDATE/DELETE).
+    Compatible con SQLite y PostgreSQL.
+    """
+    conn = get_connection()
+    try:
+        if fetch:
+            rows = conn.execute(sql, params).fetchall()
+            return [dict(r) for r in rows]
+        else:
+            conn.execute(sql, params)
+            return None
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 class DbRow(dict):
     """Fila compatible con sqlite.Row: permite row['campo'] y row[0]."""
 
