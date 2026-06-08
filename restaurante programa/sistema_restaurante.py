@@ -268,9 +268,15 @@ def execute(sql: str, params: tuple = ()) -> None:
     conn = get_connection()
     try:
         conn.execute(sql, params)
-        conn.commit()
+        try:
+            conn.commit()
+        except Exception:
+            pass
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 @st.cache_data(ttl=10, show_spinner=False)

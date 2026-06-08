@@ -464,7 +464,9 @@ class _FallbackConnection:
 
 
 def get_connection(raise_on_error: bool = False):
-    """Retorna una conexion SQLite local o PostgreSQL/Supabase."""
+    """Retorna una conexion SQLite local o PostgreSQL/Supabase.
+    Si PostgreSQL falla, FALLBACK AUTOMATICO a SQLite local
+    en vez de devolver una conexion fantasma que pierde datos."""
     pg_url = normalized_database_url()
     if pg_url:
         try:
@@ -473,7 +475,9 @@ def get_connection(raise_on_error: bool = False):
         except Exception as exc:
             if raise_on_error:
                 raise
-            return error_connection(fallback_msg=f"Error de conexion PostgreSQL: {exc}")
+            import warnings
+            warnings.warn(f"PostgreSQL no disponible ({exc}). Usando SQLite local.")
+            # Fallback automatico a SQLite
     DB_DIR.mkdir(parents=True, exist_ok=True)
     try:
         conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
@@ -485,6 +489,8 @@ def get_connection(raise_on_error: bool = False):
     except sqlite3.Error as exc:
         if raise_on_error:
             raise
+        import warnings
+        warnings.warn(f"Error de conexion SQLite: {exc}")
         return error_connection(fallback_msg=f"Error de conexion SQLite: {exc}")
 
 
