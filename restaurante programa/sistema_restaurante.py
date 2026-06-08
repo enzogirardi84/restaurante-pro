@@ -168,6 +168,16 @@ def keep_sidebar_open() -> None:
         <script>
         (function sidebarInit() {
             var doc = window.parent.document;
+            if (!doc.getElementById('_rmCollapseStyle')) {
+                var s = doc.createElement('style');
+                s.id = '_rmCollapseStyle';
+                s.textContent = '[data-testid="collapsedControl"],' +
+                    '[data-testid="collapsedControl"] [data-testid="stIconMaterial"] {' +
+                    'display:none !important;visibility:hidden !important;' +
+                    'width:0 !important;height:0 !important;overflow:hidden !important;' +
+                    'pointer-events:none !important;opacity:0 !important;}';
+                doc.head.appendChild(s);
+            }
             function hideCollapseBtn() {
                 var btn = doc.querySelector('[data-testid="collapsedControl"]');
                 if (btn) btn.style.display = 'none';
