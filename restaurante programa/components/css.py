@@ -201,12 +201,12 @@ def inject_styles() -> None:
                 box-shadow: 0 0 0 2px rgba(93,58,46,0.15) !important;
             }
             [data-testid="stAppViewContainer"] .stTextInput:first-of-type::before {
-                content: "\1F464"; position: absolute; left: 12px; top: 50%;
+                content: "\U0001F464"; position: absolute; left: 12px; top: 50%;
                 transform: translateY(-50%); z-index: 1; font-size: 16px;
                 opacity: 0.5; line-height: 1; pointer-events: none;
             }
             [data-testid="stAppViewContainer"] .stTextInput:last-of-type::before {
-                content: "\1F512"; position: absolute; left: 12px; top: 50%;
+                content: "\U0001F512"; position: absolute; left: 12px; top: 50%;
                 transform: translateY(-50%); z-index: 1; font-size: 16px;
                 opacity: 0.5; line-height: 1; pointer-events: none;
             }
