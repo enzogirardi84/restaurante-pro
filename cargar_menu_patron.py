@@ -86,34 +86,35 @@ def limpiar_nombre(nombre: str) -> str:
 
 
 def conectar_db():
-    """Intenta conectar primero con database.py del inner app, fallback al root."""
-    # Intentar import desde restaurante programa (inner)
-    try:
-        sys.path.insert(0, str(INNER_DIR))
-        from database import get_connection, using_postgres, execute
-        return get_connection, using_postgres, execute, "inner"
-    except ImportError:
-        pass
-    # Intentar import desde root
-    try:
-        sys.path.insert(0, str(BASE_DIR))
-        from database import get_connection_direct, get_connection
-        import config
-        _get_conn = get_connection_direct
-        def _using_pg():
-            return config.DB_ENGINE == "postgresql"
-        def _execute(sql, params):
-            conn = _get_conn()
-            try:
-                conn.execute(sql if config.DB_ENGINE == "sqlite" else sql.replace("?", "%s"), params)
-                conn.commit()
-            finally:
-                conn.close()
-        return _get_conn, _using_pg, _execute, "root"
-    except ImportError as e:
-        print(f"  [ERROR] No se pudo importar database.py: {e}")
-        print("  Asegurate de ejecutar el script desde la raiz del proyecto.")
-        sys.exit(1)
+    """Conecta usando el database.py del proyecto."""
+    sys.path.insert(0, str(INNER_DIR))
+    from database import get_connection, using_postgres, execute, registrar_auditoria
+    return get_connection, using_postgres, execute, registrar_auditoria
+
+def conectar_db_simple():
+    """Conexion directa SQLite para carga local sin dependencias complejas."""
+    import sqlite3
+    db_path = INNER_DIR / "data" / "restaurante.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Asegurar que el directorio existe
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _get_conn():
+        return sqlite3.connect(str(db_path))
+
+    def _using_pg():
+        return False
+
+    def _execute(sql, params):
+        c = _get_conn()
+        try:
+            c.execute(sql, params)
+            c.commit()
+        finally:
+            c.close()
+
+    return _get_conn, _using_pg, _execute, "sqlite-direct"
 
 
 def obtener_precio(nombre: str, categoria: str,
@@ -171,14 +172,12 @@ def ejecutar_carga(conn_func, using_pg_func, execute_func, db_origen: str,
     resultado = {"insertados": 0, "actualizados": 0, "errores": [], "categorias": {}}
 
     is_pg = using_pg_func() if callable(using_pg_func) else False
-    ph = "%s" if is_pg else "?"
 
     total_platos_procesados = 0
 
     for categoria, platos in NUEVO_MENU.items():
         precio_cat = precios_por_categoria.get(categoria, 0) if precios_por_categoria else 0
         insertados_cat = 0
-        actualizados_cat = 0
 
         for nombre_raw, precio_plato in platos:
             nombre = limpiar_nombre(nombre_raw)
@@ -189,43 +188,39 @@ def ejecutar_carga(conn_func, using_pg_func, execute_func, db_origen: str,
                 insertados_cat += 1
                 continue
 
-            sql = f"""
-                INSERT INTO productos_menu (nombre, precio_venta, categoria, activo)
-                VALUES ({ph}, {ph}, {ph}, 1)
-                ON CONFLICT(nombre) DO UPDATE SET
-                    precio_venta = CASE WHEN excluded.precio_venta > 0 THEN excluded.precio_venta ELSE productos_menu.precio_venta END,
-                    categoria = excluded.categoria,
-                    activo = 1
-            """
+            conn = conn_func()
             try:
-                conn = conn_func()
-                try:
-                    conn.execute(sql, (nombre, precio, categoria))
-                    if not is_pg:
-                        conn.commit()
-                    if conn.rowcount and conn.rowcount > 0:
-                        actualizados_cat += 1
-                    else:
-                        insertados_cat += 1
-                    total_platos_procesados += 1
-                except Exception as exc:
-                    conn.rollback()
-                    resultado["errores"].append(f"{categoria} - {nombre}: {exc}")
-                finally:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
+                conn.execute("CREATE TABLE IF NOT EXISTS productos_menu (id_producto INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, precio_venta REAL NOT NULL, categoria TEXT NOT NULL, activo INTEGER NOT NULL DEFAULT 1)")
+                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_productos_menu_nombre ON productos_menu (nombre)")
+                existente = conn.execute("SELECT id_producto FROM productos_menu WHERE nombre = ?", (nombre,)).fetchone()
+                if existente:
+                    eid = existente[0] if hasattr(existente, '__getitem__') else existente["id_producto"]
+                    conn.execute("UPDATE productos_menu SET precio_venta = ?, categoria = ?, activo = 1 WHERE id_producto = ?",
+                                 (precio, categoria, eid))
+                else:
+                    conn.execute("INSERT INTO productos_menu (nombre, precio_venta, categoria, activo) VALUES (?, ?, ?, 1)",
+                                 (nombre, precio, categoria))
+                conn.commit()
+                total_platos_procesados += 1
+                insertados_cat += 1
             except Exception as exc:
-                resultado["errores"].append(f"CONEXION - {categoria} - {nombre}: {exc}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                resultado["errores"].append(f"{categoria} - {nombre}: {exc}")
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
         resultado["categorias"][categoria] = {
             "total": len(platos),
             "insertados": insertados_cat,
-            "actualizados": actualizados_cat,
+            "actualizados": 0,
         }
 
-    # Commit final si PostgreSQL (cada conn ya hizo commit)
     resultado["insertados"] = total_platos_procesados - len(resultado["errores"])
     resultado["actualizados"] = 0
 
@@ -291,8 +286,13 @@ def main():
 
     # ── Ejecutar carga ──────────────────────────────────────────────
     print("\n  Conectando a la base de datos...")
-    conn_func, using_pg_func, execute_func, db_origen = conectar_db()
-    is_pg = using_pg_func() if callable(using_pg_func) else False
+    try:
+        conn_func, using_pg_func, execute_func, _ra = conectar_db()
+        is_pg = using_pg_func() if callable(using_pg_func) else False
+        db_origen = "inner"
+    except Exception:
+        conn_func, using_pg_func, execute_func, db_origen = conectar_db_simple()
+        is_pg = False
     print(f"  Motor: {'Supabase/PostgreSQL' if is_pg else 'SQLite local'} ({db_origen})")
 
     print("\n  Ejecutando carga masiva...\n")
