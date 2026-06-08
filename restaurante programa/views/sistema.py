@@ -55,7 +55,9 @@ def page_sistema() -> None:
     with cols[3]:
         stat_card("Sin receta", productos_sin_receta, "#b33a34" if productos_sin_receta else "#2e7d50")
 
-    tab_restaurante, tab_estado, tab_deploy, tab_datos = st.tabs(["Restaurante", "Estado", "Deploy", "Datos"])
+    tab_restaurante, tab_estado, tab_deploy, tab_datos, tab_agente = st.tabs(
+        ["Restaurante", "Estado", "Deploy", "Datos", "Agente IA"]
+    )
     with tab_restaurante:
         cfg = restaurant_config()
         st.subheader("Datos comerciales y ticket")
@@ -150,3 +152,75 @@ def page_sistema() -> None:
             file_name=f"diagnostico_restaurante_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
             use_container_width=True,
         )
+
+    with tab_agente:
+        _tab_agente_ia()
+
+
+def _tab_agente_ia():
+    st.subheader("Telemetria y Agente IA")
+    reporte_path = Path(__file__).parent.parent.parent / "data" / "reporte_agente_qa.log"
+    if reporte_path.exists():
+        contenido = reporte_path.read_text(encoding="utf-8")
+        lineas = contenido.strip().split("\n")
+        ultimo = [l for l in lineas if "Resumen:" in l]
+        if ultimo:
+            st.success(f"Ultimo escaneo: {ultimo[-1]}")
+        st.text_area("Log completo del agente", contenido, height=200, disabled=True)
+    else:
+        st.info("El agente QA no se ha ejecutado aun. Ejecuta `python agente_qa.py` desde la terminal.")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("Ejecutar agente ahora", type="primary", use_container_width=True):
+            import subprocess, sys
+            with st.spinner("Agente escaneando y reparando..."):
+                result = subprocess.run(
+                    [sys.executable, "agente_qa.py", "--once"],
+                    capture_output=True, text=True, timeout=120,
+                    cwd=Path(__file__).parent.parent.parent,
+                )
+            if result.returncode == 0:
+                st.toast("Agente ejecutado correctamente")
+            else:
+                st.error(result.stderr[:500])
+            st.rerun()
+    with c2:
+        stats = _estadisticas_agente()
+        st.metric("Archivos escaneados", stats.get("archivos_escaneados", 0))
+    with c3:
+        st.metric("Corregidos", stats.get("corregidos", 0))
+
+    st.caption(
+        "El agente opera en 4 fases: Escaneo AST → Analisis de logs → "
+        "Correccion con backup → Validacion y rollback. "
+        "Para ejecucion automatica cada 5 min: `python agente_qa.py --watch`"
+    )
+
+
+def _estadisticas_agente() -> dict:
+    reporte_path = Path(__file__).parent.parent.parent / "data" / "reporte_agente_qa.log"
+    stats = {"archivos_escaneados": 0, "corregidos": 0, "saludables": 0, "errores_log": 0}
+    if not reporte_path.exists():
+        return stats
+    for linea in reporte_path.read_text(encoding="utf-8").split("\n"):
+        if "Archivos Python encontrados:" in linea:
+            try:
+                stats["archivos_escaneados"] = int(linea.split(":")[-1].strip())
+            except ValueError:
+                pass
+        if "corregidos:" in linea:
+            # Parsear "Resumen: X saludables, Y corregidos, Z fallaron, W rollbacks"
+            partes = linea.split(",")
+            for p in partes:
+                if "saludables" in p:
+                    try:
+                        stats["saludables"] = int(p.split(":")[-1].strip().split()[0])
+                    except ValueError:
+                        pass
+                if "corregidos" in p:
+                    try:
+                        stats["corregidos"] = int(p.split(":")[-1].strip().split()[0])
+                    except ValueError:
+                        pass
+    return stats
