@@ -1534,7 +1534,7 @@ def page_cocina() -> None:
     top_left, top_right = st.columns([2.2, 1])
     with top_left:
         resumen = resumen_chef()
-        st.markdown("<div class='kds-summary'><div class='kds-summary-title'>Chef view â€” total pendiente</div>", unsafe_allow_html=True)
+        st.markdown("<div class='kds-summary'><div class='kds-summary-title'>Chef view - ” total pendiente</div>", unsafe_allow_html=True)
         if resumen:
             for item in resumen:
                 st.markdown(
@@ -1643,7 +1643,7 @@ def page_cocina() -> None:
                     total_form += importe
                     st.markdown(
                         f"<div class='line'>"
-                        f"<span><b>{item['cantidad']}&times—</b> {escape(item['nombre'])}</span>"
+                        f"<span><b>{item['cantidad']} ×</b> {escape(item['nombre'])}</span>"
                         f"<b>{money(importe)}</b>"
                         f"</div>",
                         unsafe_allow_html=True,
@@ -1749,7 +1749,7 @@ def page_cocina() -> None:
             f"<span class='kb-timer'>{elapsed_label(minutes)}</span>"
             f"</div>"
             f"{dishes}"
-            f"<div class='kb-mozo'>&#x1F464 {escape(pedido['mozo'])}</div>"
+            f"<div class='kb-mozo'> 👤  {escape(pedido['mozo'])}</div>"
             f"</div>"
         )
 
@@ -3452,7 +3452,7 @@ def _render_export_section(desde: str, hasta: str,
             html_parts.append(f"<h2>{nombre.replace('_',' ').title()}</h2>{df.head(50).to_html(index=False)}")
     html_parts.append("</body></html>")
     html_str = "\n".join(html_parts)
-    st.download_button("&#x1F5A8 Reporte HTML (imprimible)", html_str.encode("utf-8"),
+    st.download_button(" 🖨️ Reporte HTML (imprimible)", html_str.encode("utf-8"),
                        file_name=f"reporte_{desde}_{hasta}.html",
                        mime="text/html", use_container_width=True)
 
