@@ -159,16 +159,7 @@ def inject_styles() -> None:
                 text-align: center;
                 margin-bottom: 30px;
             }
-            .login-logo-img {
-                width: 300px;
-                max-width: 100%;
-                height: auto;
-                border: none;
-                background: transparent;
-                border-radius: 0;
-                display: block;
-                margin: 0 auto 20px auto;
-            }
+
             .login-badge {
                 background: #3e2723;
                 color: white;

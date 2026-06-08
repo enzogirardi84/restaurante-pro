@@ -561,11 +561,9 @@ def login() -> None:
         """,
         unsafe_allow_html=True,
     )
-    logo_tag = login_logo_tag()
     st.markdown(
         f"""
         <div class="login-header">
-            {logo_tag}
             <div class="login-badge">SISTEMA</div>
             <div class="login-title">Restaurante Pro</div>
             <div class="login-separator">\u2666</div>
