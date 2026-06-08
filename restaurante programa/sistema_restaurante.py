@@ -3731,7 +3731,7 @@ def main() -> None:
         public_status_page()
         st.stop()
 
-    if st.session_state.usuario is None:
+    if st.session_state.get("usuario") is None:
         login()
         st.stop()
 
