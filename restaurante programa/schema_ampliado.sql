@@ -246,5 +246,19 @@ WHERE stock_actual > 0;
 INSERT OR IGNORE INTO cajas_diarias (id_usuario_cajero, monto_apertura, estado_caja)
 VALUES (3, 50000, 'abierta');
 
+-- Tabla de auditoria operativa para registrar acciones criticas
+CREATE TABLE IF NOT EXISTS logs_operaciones (
+    id_log INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario TEXT NOT NULL,
+    accion TEXT NOT NULL,
+    detalle TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    ip_origen TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_logs_fecha ON logs_operaciones(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_logs_accion ON logs_operaciones(accion);
+
 
 COMMIT;

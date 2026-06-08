@@ -44,7 +44,7 @@ from database import (
     registrar_auditoria,
     using_postgres,
 )
-from cloud_config import app_name, cloud_status, database_url_warnings, default_service_percentage, masked_status_table
+from cloud_config import app_name, cloud_status, database_url_warnings, default_service_percentage, masked_status_table, normalized_database_url
 from components.css import inject_styles, offline_banner, terminal_mode_styles, title, stat_card, auto_refresh
 from kitchen_utils import kitchen_auto_refresh_seconds
 from order_utils import normalize_order_cart
@@ -158,6 +158,69 @@ def register_app_boot_once() -> str:
     return boot_time
 
 
+# ── Bloque anti-contenedor efimero ─────────────────────────────────────
+def _asegurar_sqlite_local():
+    """Si el .db local esta vacio o no existe, lo clona desde Supabase.
+    Resuelve la perdida total de datos en Streamlit Cloud cuando el
+    contenedor se reinicia tras inactividad o commit."""
+    pg_url = normalized_database_url()
+    if not pg_url:
+        return
+    if not DB_PATH.exists() or DB_PATH.stat().st_size < 4096:
+        necesita = True
+    else:
+        try:
+            conn = sqlite3.connect(str(DB_PATH))
+            cur = conn.execute("SELECT COUNT(*) AS cnt FROM usuarios")
+            necesita = cur.fetchone()[0] == 0
+            conn.close()
+        except Exception:
+            necesita = True
+    if not necesita:
+        return
+    import warnings as _w
+    _w.warn("SQLite local vacio. Restaurando desde Supabase...")
+    try:
+        import psycopg2
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        pg_conn = psycopg2.connect(pg_url)
+        pg_cur = pg_conn.cursor()
+        pg_cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name")
+        tablas = [r[0] for r in pg_cur.fetchall()]
+        sl_conn = sqlite3.connect(str(DB_PATH))
+        sl_conn.execute("PRAGMA foreign_keys=OFF")
+        for tabla in tablas:
+            if tabla.startswith("_"):
+                continue
+            try:
+                pg_cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s ORDER BY ordinal_position", (tabla,))
+                cols = [r[0] for r in pg_cur.fetchall()]
+                if not cols:
+                    continue
+                pg_cur.execute(f'SELECT * FROM "{tabla}"')
+                filas = pg_cur.fetchall()
+                if not filas:
+                    continue
+                sl_conn.execute(f'DROP TABLE IF EXISTS "{tabla}"')
+                sl_conn.execute(f'CREATE TABLE "{tabla}" ({", ".join(f'"{c}"' for c in cols)})')
+                ph = ", ".join("?" for _ in cols)
+                cn = ", ".join(f'"{c}"' for c in cols)
+                for fila in filas:
+                    try:
+                        sl_conn.execute(f'INSERT INTO "{tabla}" ({cn}) VALUES ({ph})', fila)
+                    except Exception:
+                        pass
+                sl_conn.commit()
+            except Exception:
+                continue
+        sl_conn.execute("PRAGMA foreign_keys=ON")
+        sl_conn.close()
+        pg_conn.close()
+        _w.warn(f"SQLite restaurado desde Supabase ({len(tablas)} tablas).")
+    except Exception as exc:
+        _w.warn(f"No se pudo restaurar SQLite: {exc}")
+
+_asegurar_sqlite_local()
 bootstrap_database()
 register_app_boot_once()
 

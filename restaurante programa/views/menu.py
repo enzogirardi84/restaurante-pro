@@ -89,18 +89,21 @@ def _guardar_promo(activa: bool, categoria: str, umbral: float, pct: float):
 
 
 def _formulario_nuevo_producto():
-    with st.form("form_nuevo_producto", clear_on_submit=True):
+    with st.form(key="form_alta_menu_patron", clear_on_submit=True):
         c1, c2 = st.columns(2)
         nombre = c1.text_input("Nombre del plato / bebida")
-        precio = c1.number_input("Precio de venta", min_value=0.0, step=100.0)
+        precio = c1.number_input("Precio de venta", min_value=0.0, step=100.0, format="%.2f")
         categoria = c2.selectbox("Categoria", ["cocina", "bebidas", "postres"])
         activo = c2.checkbox("Activo", value=True)
         guardado = st.form_submit_button("Guardar producto", type="primary", use_container_width=True)
         if guardado:
-            if not nombre or not nombre.strip():
+            nombre = (nombre or "").strip()
+            if not nombre:
                 st.error("El nombre es obligatorio.")
+            elif precio <= 0:
+                st.error("El precio debe ser mayor a cero.")
             else:
-                _insertar_producto(nombre.strip(), precio, categoria, activo)
+                _insertar_producto(nombre, precio, categoria, activo)
                 st.toast("Producto guardado correctamente")
                 st.rerun()
 

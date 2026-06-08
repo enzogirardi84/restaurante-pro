@@ -39,17 +39,17 @@ def page_inventario() -> None:
 
 
 def _kpi_row():
-    row = execute_query("""
+    rows_q = execute_query("""
         SELECT COUNT(*) AS total_insumos,
                COALESCE(SUM(CASE WHEN stock_actual <= stock_minimo THEN 1 ELSE 0 END), 0) AS stock_bajo,
                COALESCE(SUM(stock_actual), 0) AS unidades_totales
         FROM insumos
-    """, fetch=True)
-    data = row[0] if row else {"total_insumos": 0, "stock_bajo": 0, "unidades_totales": 0}
+    """, fetch=True) or []
+    data = rows_q[0] if rows_q else {"total_insumos": 0, "stock_bajo": 0, "unidades_totales": 0}
     c1, c2, c3 = st.columns(3)
-    c1.metric("Insumos", int(data["total_insumos"]))
-    c2.metric("Stock bajo", int(data["stock_bajo"]), delta_color="inverse")
-    c3.metric("Unidades totales", f"{float(data['unidades_totales']):.0f}")
+    c1.metric("Insumos", int(data.get("total_insumos", 0)))
+    c2.metric("Stock bajo", int(data.get("stock_bajo", 0)), delta_color="inverse")
+    c3.metric("Unidades totales", f"{float(data.get('unidades_totales', 0)):.0f}")
 
 
 def _tab_stock_actual():
@@ -89,6 +89,7 @@ def _tab_stock_actual():
     if st.button("Guardar ajustes de stock", type="primary", use_container_width=True):
         conn = get_connection()
         try:
+            conn.execute("BEGIN IMMEDIATE")
             for _, r in edited.iterrows():
                 conn.execute("""
                     UPDATE insumos SET stock_actual = ?, stock_minimo = ?
@@ -99,9 +100,16 @@ def _tab_stock_actual():
             st.toast("Inventario actualizado")
             st.rerun()
         except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             st.error(str(e))
         finally:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _tab_registrar_insumo():

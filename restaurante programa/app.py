@@ -45,12 +45,13 @@ def formatear_tiempo(fecha_str: str) -> tuple[int, str]:
     return mins, f"{mins // 60} h {mins % 60} min"
 
 
-def prioridad(mins: int) -> tuple[str, str]:
-    if mins >= 20:
-        return "#c9342d", "Urgente"
-    if mins >= 10:
-        return "#d99018", "Atencion"
-    return "#2e7d50", "Normal"
+def prioridad(mins: int) -> tuple[str, str, str]:
+    # Retorna: (color_borde, etiqueta, clase_css)
+    if mins >= 25:
+        return "#c9342d", "Critico", "delay-critical"
+    if mins >= 15:
+        return "#d99018", "Demorado", "delay-warning"
+    return "#2e7d50", "A tiempo", "delay-normal"
 
 
 def render_columna(titulo: str, items: list[dict], estado_actual: str, color: str) -> None:
@@ -68,17 +69,25 @@ def render_columna(titulo: str, items: list[dict], estado_actual: str, color: st
         st.markdown('<div class="empty">Sin pedidos en esta columna.</div>', unsafe_allow_html=True)
         return
 
+    # Ordenar por prioridad: los mas criticos primero
+    items_con_prioridad = []
     for item in items:
-        mins, etiqueta = formatear_tiempo(item["fecha"])
-        border, label = prioridad(mins)
+        mins, _ = formatear_tiempo(item["fecha"])
+        items_con_prioridad.append((mins, item))
+    items_con_prioridad.sort(key=lambda x: x[0], reverse=True)
+
+    for mins, item in items_con_prioridad:
+        _, etiqueta = formatear_tiempo(item["fecha"])
+        border, label, css_class = prioridad(mins)
+        puntaje_prioridad = int(mins * 1.5 + (20 if item.get("estado") == "esperando_cuenta" else 0))
         st.markdown(
             f"""
-            <div class="ticket" style="border-left-color:{border}">
+            <div class="ticket {css_class}" style="border-left-color:{border}">
                 <div class="ticket-top">
                     <span>Mesa {item['mesa']} - Pedido #{item['id']}</span>
-                    <span>{escape(label)} · {escape(etiqueta)}</span>
+                    <span class="badge-{css_class}">{escape(label)} · {escape(etiqueta)}</span>
                 </div>
-                <div class="ticket-meta">Mozo: {escape(item['mozo'])}</div>
+                <div class="ticket-meta">Mozo: {escape(item['mozo'])} · Prioridad: {puntaje_prioridad}</div>
                 <div class="ticket-detail">{escape(item['detalle'] or '')}</div>
             </div>
             """,
@@ -155,6 +164,41 @@ st.markdown(
             text-align: center;
             background: rgba(255,255,255,0.55);
             margin-top: 0.7rem;
+        }
+        @keyframes pulse-warning {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(217, 144, 24, 0); }
+            50% { box-shadow: 0 0 0 4px rgba(217, 144, 24, 0.25); }
+        }
+        @keyframes pulse-critical {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(201, 52, 45, 0); }
+            50% { opacity: 0.92; box-shadow: 0 0 0 6px rgba(201, 52, 45, 0.2); }
+        }
+        .delay-warning {
+            animation: pulse-warning 2s ease-in-out infinite;
+            border-left-width: 6px !important;
+        }
+        .delay-critical {
+            animation: pulse-critical 1.2s ease-in-out infinite;
+            border-left-width: 8px !important;
+            background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%) !important;
+        }
+        .badge-delay-critical {
+            display: inline-block;
+            background: #c9342d;
+            color: white;
+            padding: 0.1rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.78rem;
+            font-weight: 700;
+        }
+        .badge-delay-warning {
+            display: inline-block;
+            background: #d99018;
+            color: white;
+            padding: 0.1rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.78rem;
+            font-weight: 700;
         }
     </style>
     """,

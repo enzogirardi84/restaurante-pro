@@ -10,7 +10,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from database import DB_PATH, database_label, using_postgres
+from database import (
+    DB_PATH, database_label, logs_operaciones_recientes,
+    procesar_cola_sincronizacion, using_postgres,
+)
 from cloud_config import cloud_status, masked_status_table
 from components.css import stat_card, title
 from components.helpers import (
@@ -55,8 +58,8 @@ def page_sistema() -> None:
     with cols[3]:
         stat_card("Sin receta", productos_sin_receta, "#b33a34" if productos_sin_receta else "#2e7d50")
 
-    tab_restaurante, tab_estado, tab_deploy, tab_datos, tab_agente = st.tabs(
-        ["Restaurante", "Estado", "Deploy", "Datos", "Agente IA"]
+    tab_restaurante, tab_estado, tab_deploy, tab_datos, tab_sync, tab_agente = st.tabs(
+        ["Restaurante", "Estado", "Deploy", "Datos", "Sincronizacion", "Agente IA"]
     )
     with tab_restaurante:
         cfg = restaurant_config()
@@ -153,8 +156,87 @@ def page_sistema() -> None:
             use_container_width=True,
         )
 
+    with tab_sync:
+        _tab_sincronizacion()
     with tab_agente:
         _tab_agente_ia()
+
+
+def _tab_sincronizacion():
+    st.subheader("Cola de sincronizacion offline-first")
+    st.caption("Registros pendientes de replicar a Supabase. Si la cola se acumula, revisa la conexion.")
+    postgres_mode = using_postgres()
+
+    pendientes = rows("""
+        SELECT id_sync, tabla, operacion, clave_primaria, creado_en, intentos
+        FROM cola_sincronizacion
+        WHERE sincronizado = 0
+        ORDER BY creado_en ASC
+        LIMIT 100
+    """)
+
+    total_pendientes = len(pendientes)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Pendientes", total_pendientes)
+    c2.metric("Conectado a nube", "Si" if postgres_mode else "No",
+              delta_color="off" if postgres_mode else "inverse")
+    c3.metric("Ultima descarga", "N/A")
+
+    if pendientes:
+        st.warning(f"Hay {total_pendientes} operaciones esperando sincronizacion.")
+        df_cola = pd.DataFrame(pendientes)
+        st.dataframe(df_cola, hide_index=True, use_container_width=True)
+
+        col_btn, col_status = st.columns([1, 3])
+        with col_btn:
+            if st.button("Forzar sincronizacion ahora", type="primary", use_container_width=True):
+                with st.spinner("Sincronizando..."):
+                    resultado = procesar_cola_sincronizacion(max_items=50)
+                ok_count = resultado.get("procesados", 0)
+                fail_count = resultado.get("fallaron", 0)
+                if ok_count > 0:
+                    st.toast(f"{ok_count} registros sincronizados con exito")
+                if fail_count > 0:
+                    errores = resultado.get("errores", [])
+                    for err in errores[:3]:
+                        st.error(err)
+                    if len(errores) > 3:
+                        st.caption(f"... y {len(errores) - 3} errores mas.")
+                if not ok_count and not fail_count:
+                    st.info("No habia registros pendientes por procesar.")
+                st.rerun()
+        with col_status:
+            st.caption("La sincronizacion procesa hasta 50 registros por lote.")
+    else:
+        if postgres_mode:
+            st.success("No hay operaciones pendientes. La cola esta al dia.")
+        else:
+            st.info("Modo local SQLite activo. Los datos se guardan localmente.")
+            st.caption("Configura DATABASE_URL en Streamlit Secrets para activar la sincronizacion.")
+
+    st.divider()
+    st.subheader("Logs de auditoria operativa")
+    st.caption("Acciones criticas registradas: cambios de precio, anulaciones, aperturas de caja, etc.")
+
+    logs = logs_operaciones_recientes(200)
+    if logs:
+        df_logs = pd.DataFrame(logs)
+        if not df_logs.empty:
+            df_logs["created_at"] = pd.to_datetime(df_logs["created_at"], errors="coerce")
+            df_logs = df_logs.rename(columns={
+                "id_log": "ID", "usuario": "Usuario", "accion": "Accion",
+                "detalle": "Detalle", "created_at": "Fecha",
+            })
+            st.dataframe(df_logs, hide_index=True, use_container_width=True)
+
+            csv_logs = df_logs.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                "Descargar logs de auditoria.csv", csv_logs,
+                file_name=f"logs_auditoria_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv", use_container_width=False,
+            )
+    else:
+        st.info("Aun no hay registros de auditoria operativa.")
 
 
 def _tab_agente_ia():

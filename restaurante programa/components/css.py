@@ -75,6 +75,24 @@ def inject_styles() -> None:
                 display: flex !important;
                 background: var(--nav) !important;
                 border-right: 1px solid rgba(255,255,255,0.06);
+                overflow-y: auto !important;
+                height: 100vh !important;
+                position: relative !important;
+            }
+            section[data-testid="stSidebar"] > div:nth-child(2) {
+                overflow-y: auto !important;
+                flex: 1 1 auto !important;
+                max-height: 100vh !important;
+            }
+            section[data-testid="stSidebar"]::-webkit-scrollbar {
+                width: 5px;
+            }
+            section[data-testid="stSidebar"]::-webkit-scrollbar-thumb {
+                background: rgba(255,255,255,0.15);
+                border-radius: 4px;
+            }
+            section[data-testid="stSidebar"]::-webkit-scrollbar-track {
+                background: transparent;
             }
             section[data-testid="stSidebar"] > div:first-child {
                 background: var(--nav) !important;

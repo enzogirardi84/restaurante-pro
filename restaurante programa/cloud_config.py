@@ -52,8 +52,12 @@ def _streamlit_secret(name: str) -> str:
 
 
 def get_secret(name: str) -> str:
-    """Lee un secreto desde variables de entorno o st.secrets."""
-    return os.environ.get(name, "").strip() or _streamlit_secret(name)
+    """Lee un secreto desde variables de entorno o st.secrets.
+    Prioridad: st.secrets > os.environ > .env (ya cargado).
+    En Streamlit Cloud, los Secrets del panel tienen maxima prioridad."""
+    env_val = os.environ.get(name, "").strip()
+    ss_val = _streamlit_secret(name)
+    return ss_val or env_val
 
 
 def normalize_supabase_url(value: str) -> str:

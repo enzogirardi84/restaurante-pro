@@ -206,6 +206,19 @@ CREATE TABLE IF NOT EXISTS turnos_personal (
     FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario)
 );
 
+CREATE TABLE IF NOT EXISTS logs_operaciones (
+    id_log INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario TEXT NOT NULL,
+    accion TEXT NOT NULL,
+    detalle TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    ip_origen TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_logs_fecha ON logs_operaciones(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_logs_accion ON logs_operaciones(accion);
+
 CREATE TABLE IF NOT EXISTS facturas_electronicas (
     id_factura INTEGER PRIMARY KEY AUTOINCREMENT,
     id_pago INTEGER,

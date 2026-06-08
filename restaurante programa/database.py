@@ -1349,6 +1349,44 @@ def registrar_auditoria(modulo: str, accion: str, detalle: str = "") -> None:
         conn.close()
 
 
+def registrar_auditoria_operativa(usuario: str, accion: str, detalle: str = "",
+                                  metadata_json: str = "{}") -> None:
+    """Registra una accion critica en logs_operaciones para auditoria de caja.
+    Acciones tipicas: eliminacion_item, cambio_precio, apertura_forzada,
+    mesa_reabierta, cierre_anticipado, anulacion_factura."""
+    conn = get_connection()
+    try:
+        conn.execute("""
+            INSERT INTO logs_operaciones (usuario, accion, detalle, metadata_json)
+            VALUES (?, ?, ?, ?)
+        """, (usuario, accion, detalle, metadata_json))
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def logs_operaciones_recientes(limit: int = 100) -> list[dict]:
+    """Retorna los ultimos logs operativos para el panel de auditoria."""
+    conn = get_connection()
+    try:
+        rows = conn.execute("""
+            SELECT id_log, usuario, accion, detalle, created_at
+            FROM logs_operaciones
+            ORDER BY id_log DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
 def _get_unidad(id_insumo):
     conn = get_connection()
     try:
