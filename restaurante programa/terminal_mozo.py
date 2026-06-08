@@ -7,7 +7,8 @@ from __future__ import annotations
 from html import escape
 
 import streamlit as st
-from database import get_connection, init_db
+import pandas as pd
+from database import get_connection, init_db, rows as db_rows
 
 
 COLOR_PRIMARY = "#b42318"
@@ -146,6 +147,46 @@ def inject_styles() -> None:
                 background: {COLOR_PRIMARY};
                 border-color: {COLOR_PRIMARY};
             }}
+            .card-guia {{
+                border-radius: 10px;
+                padding: 1rem 1.2rem;
+                margin: 0.5rem 0 0.8rem;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                transition: all 0.2s ease;
+            }}
+            .card-guia-nombre {{
+                font-size: 1.2rem;
+                font-weight: 800;
+                line-height: 1.3;
+            }}
+            .card-guia-categoria {{
+                font-size: 0.82rem;
+                color: {COLOR_MUTED};
+                text-transform: capitalize;
+                margin-top: 0.15rem;
+            }}
+            .card-guia-badge {{
+                display: inline-block;
+                padding: 0.2rem 0.65rem;
+                border-radius: 4px;
+                font-size: 0.75rem;
+                font-weight: 700;
+                color: white;
+            }}
+            .card-guia-precio {{
+                font-size: 1.5rem;
+                font-weight: 800;
+                line-height: 1;
+            }}
+            .card-guia-subtotal {{
+                font-size: 0.85rem;
+                color: {COLOR_MUTED};
+                margin-top: 0.2rem;
+            }}
+            .producto-selected {{
+                border-left: 4px solid {COLOR_OK};
+                background: #f6fdf4;
+            }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -252,6 +293,88 @@ def crear_pedido(id_mesa: int, id_usuario: int, carrito: dict[int, dict]) -> int
         conn.close()
 
 
+def verificar_stock_insumos(id_producto: int) -> tuple[bool, list[str]]:
+    """Verifica si hay stock suficiente de todos los insumos para un plato.
+    Retorna (disponible, [lista_de_faltantes])."""
+    receta = db_rows("""
+        SELECT i.nombre, r.cantidad_a_descontar, i.stock_actual, i.unidad_medida
+        FROM recetas_escandallo r
+        JOIN insumos i ON i.id_insumo = r.id_insumo
+        WHERE r.id_producto = ?
+    """, (id_producto,))
+    if not receta:
+        return True, []
+    faltantes = []
+    for r in receta:
+        if float(r["stock_actual"]) < float(r["cantidad_a_descontar"]):
+            faltantes.append(f"{r['nombre']} (necesita {float(r['cantidad_a_descontar']):.0f} {r['unidad_medida']}, hay {float(r['stock_actual']):.0f})")
+    return len(faltantes) == 0, faltantes
+
+
+def render_card_confirmacion(producto: dict) -> None:
+    """Card guia de confirmacion visual que se muestra al seleccionar un plato."""
+    pid = int(producto["id_producto"])
+    cart_item = st.session_state.cart.get(pid, {"cantidad": 0, "observaciones": ""})
+    cantidad = int(cart_item.get("cantidad", 0))
+    precio = float(producto["precio_venta"])
+    tiene_seleccion = cantidad > 0
+
+    disponible, faltantes = verificar_stock_insumos(pid)
+    stockout = not disponible and tiene_seleccion
+
+    border_color = "#b42318" if stockout else ("#247a3d" if tiene_seleccion else "#ded8cf")
+    bg_color = "#fff5f5" if stockout else ("#f6fdf4" if tiene_seleccion else "#ffffff")
+    label = "SIN STOCK" if stockout else ("CONFIRMADO" if tiene_seleccion else "SELECCIONAR")
+
+    st.markdown(
+        f"""
+        <div class="card-guia" style="border-left: 6px solid {border_color}; background: {bg_color};">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap;">
+                <div style="flex:2; min-width:200px;">
+                    <div class="card-guia-nombre">{producto['nombre']}</div>
+                    <div class="card-guia-categoria">{producto['categoria']}</div>
+                    <div style="margin-top:0.5rem;">
+                        <span class="card-guia-badge" style="background:{border_color};">{label}</span>
+                    </div>
+                </div>
+                <div style="flex:1; min-width:120px; text-align:right;">
+                    <div class="card-guia-precio">$ {precio:,.0f}</div>
+                    <div class="card-guia-subtotal">Subtotal: $ {(cantidad * precio):,.0f}</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if stockout:
+        for f in faltantes:
+            st.error(f"Insumo critico agotado: {f}")
+        st.button("Plato no disponible", disabled=True, use_container_width=True)
+    else:
+        col_dec2, col_qty2, col_inc2, col_obs2 = st.columns([0.6, 0.7, 0.6, 4])
+        with col_dec2:
+            if st.button("-", key=f"card_dec_{pid}", use_container_width=True, disabled=cantidad == 0):
+                cart_set_producto(producto, delta=-1)
+                st.rerun()
+        with col_qty2:
+            st.markdown(f'<div class="cantidad">{cantidad}</div>', unsafe_allow_html=True)
+        with col_inc2:
+            if st.button("+", key=f"card_inc_{pid}", use_container_width=True):
+                cart_set_producto(producto, delta=1)
+                st.rerun()
+        with col_obs2:
+            nota = st.text_input(
+                "Obs", value=cart_item.get("observaciones", ""),
+                key=f"card_obs_{pid}", label_visibility="collapsed",
+                placeholder="Aclaracion para cocina...",
+            )
+            if tiene_seleccion:
+                st.session_state.cart[pid]["observaciones"] = nota
+
+    st.markdown("<hr style='margin:0.8rem 0;border-color:#e0d8ce;'>", unsafe_allow_html=True)
+
+
 def init_session() -> None:
     defaults = {
         "mozo": None,
@@ -260,6 +383,7 @@ def init_session() -> None:
         "cart": {},
         "success_msg": None,
         "menu_search": "",
+        "selected_product": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -408,17 +532,26 @@ def render_producto(producto: dict) -> None:
     pid = int(producto["id_producto"])
     cart_item = st.session_state.cart.get(pid, {"cantidad": 0, "observaciones": ""})
     cantidad = int(cart_item.get("cantidad", 0))
+    is_selected = (st.session_state.get("selected_product") == pid)
 
     st.markdown(
         f"""
-        <div class="producto">
+        <div class="producto {'producto-selected' if is_selected else ''}"
+             style="{'border-left:4px solid #247a3d;background:#f6fdf4;' if is_selected else ''}">
             <div class="producto-nombre">{escape(producto['nombre'])}</div>
             <div class="producto-precio">{money(producto['precio_venta'])}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    col_dec, col_qty, col_inc, col_note = st.columns([0.75, 0.8, 0.75, 4.2])
+
+    col_sel, col_dec, col_qty, col_inc, col_note = st.columns([1.3, 0.65, 0.7, 0.65, 4])
+    with col_sel:
+        label_btn = "Seleccionado" if is_selected else "Seleccionar"
+        tipo_btn = "primary" if is_selected else "secondary"
+        if st.button(label_btn, key=f"sel_{pid}", type=tipo_btn, use_container_width=True):
+            st.session_state.selected_product = pid if not is_selected else None
+            st.rerun()
     with col_dec:
         if st.button("-", key=f"dec_{pid}", use_container_width=True, disabled=cantidad == 0):
             cart_set_producto(producto, delta=-1)
@@ -431,14 +564,15 @@ def render_producto(producto: dict) -> None:
             st.rerun()
     with col_note:
         nota = st.text_input(
-            "Observacion",
-            value=cart_item.get("observaciones", ""),
-            key=f"obs_{pid}",
-            label_visibility="collapsed",
-            placeholder="Observacion para cocina: sin sal, punto jugoso, alergias...",
+            "Obs", value=cart_item.get("observaciones", ""),
+            key=f"obs_{pid}", label_visibility="collapsed",
+            placeholder="Aclaracion para cocina...",
         )
         if cantidad > 0:
             st.session_state.cart[pid]["observaciones"] = nota
+
+    if is_selected:
+        render_card_confirmacion(producto)
 
 
 def render_carrito(menu: list[dict]) -> tuple[int, float]:

@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from database import execute_query, get_connection, registrar_auditoria
-from components.helpers import money as fmt_money
+from components.helpers import money as fmt_money, receta_producto, rows
 
 
 def get_menu(active_only: bool = True) -> list[dict]:
@@ -147,6 +147,9 @@ def _editor_productos():
         activos = df["activo"].sum() if "activo" in df.columns else len(df)
         st.caption(f"{len(df)} productos ({int(activos)} activos, {len(df) - int(activos)} pausados)")
 
+    st.divider()
+    _panel_recetas()
+
 
 def _actualizar_productos(df: pd.DataFrame):
     conn = get_connection()
@@ -161,6 +164,71 @@ def _actualizar_productos(df: pd.DataFrame):
         conn.commit()
         registrar_auditoria("menu", "productos_actualizados", str(len(df)))
     except Exception as e:
-        st.error(f"Error al guardar: {e}")
+            st.error(f"Error al guardar: {e}")
     finally:
         conn.close()
+
+
+def _panel_recetas():
+    """Expander con recetas e insumos de cada producto."""
+    productos = get_menu(active_only=False)
+    if not productos:
+        return
+
+    prod_opts = {f"{p['nombre']} (${p['precio_venta']:,.0f})": p["id_producto"] for p in productos}
+    sel = st.selectbox("Seleccionar producto para ver su receta", list(prod_opts.keys()), key="prod_receta")
+    if not sel:
+        return
+
+    id_prod = prod_opts[sel]
+    receta = receta_producto(id_prod)
+
+    with st.expander("Receta e insumos asociados", expanded=True):
+        if receta:
+            df_rec = pd.DataFrame(receta)
+            df_rec["costo_total"] = 0.0
+            st.dataframe(
+                df_rec[["insumo", "cantidad_a_descontar", "unidad_medida", "stock_actual", "stock_minimo"]],
+                hide_index=True, use_container_width=True,
+                column_config={
+                    "insumo": "Insumo",
+                    "cantidad_a_descontar": st.column_config.NumberColumn("Cantidad", format="%.1f"),
+                    "unidad_medida": "Unidad",
+                    "stock_actual": st.column_config.NumberColumn("Stock actual", format="%.0f"),
+                    "stock_minimo": st.column_config.NumberColumn("Stock minimo", format="%.0f"),
+                },
+            )
+            stock_bajo = [r for r in receta if float(r["stock_actual"]) <= float(r["stock_minimo"])]
+            if stock_bajo:
+                for r in stock_bajo:
+                    st.warning(f"Stock bajo: {r['insumo']} ({float(r['stock_actual']):.0f} / {float(r['stock_minimo']):.0f})")
+        else:
+            st.info("Este producto no tiene insumos vinculados en su receta.")
+            from components.helpers import rows as _rows
+            insumos_disponibles = _rows("SELECT id_insumo, nombre, unidad_medida FROM insumos ORDER BY nombre")
+            if insumos_disponibles:
+                with st.form(key="vincular_insumo_receta", clear_on_submit=True):
+                    c1, c2, c3 = st.columns([3, 1, 1])
+                    insumo_sel = c1.selectbox(
+                        "Insumo", insumos_disponibles,
+                        format_func=lambda i: f"{i['nombre']} ({i['unidad_medida']})",
+                        key="insumo_receta_sel",
+                    )
+                    cantidad = c2.number_input("Cantidad a descontar", min_value=0.01, step=1.0, format="%.1f")
+                    if c3.form_submit_button("Vincular", type="primary", use_container_width=True):
+                        conn = get_connection()
+                        try:
+                            conn.execute("""
+                                INSERT INTO recetas_escandallo (id_producto, id_insumo, cantidad_a_descontar)
+                                VALUES (?, ?, ?)
+                                ON CONFLICT(id_producto, id_insumo) DO UPDATE SET cantidad_a_descontar = ?
+                            """, (id_prod, insumo_sel["id_insumo"], cantidad, cantidad))
+                            conn.commit()
+                            st.toast("Insumo vinculado a la receta")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(str(exc))
+                        finally:
+                            conn.close()
+            else:
+                st.caption("No hay insumos en el inventario para vincular. Agrega insumos primero.")
