@@ -49,7 +49,7 @@ AUTO_TERMINALS = {
 }
 
 PRESET_NOTES = [
-    "Sin cebolla", "Sin sal", "Sin azÃºcar", "Sin TACC", "Sin lactosa",
+    "Sin cebolla", "Sin sal", "Sin azúcar", "Sin TACC", "Sin lactosa",
     "Vegetariano", "Vegano", "Bien cocido", "Poco cocido", "Sin picante",
     "Con extra de queso", "A punto", "Sin hielo", "Con hielo", "Sin gas",
 ]
@@ -434,7 +434,7 @@ def sidebar() -> None:
         unsafe_allow_html=True,
     )
     st.sidebar.title(APP_TITLE)
-    st.sidebar.caption(f"{user['nombre']} {user['apellido']} Â· {user['rol']}")
+    st.sidebar.caption(f"{user['nombre']} {user['apellido']} · {user['rol']}")
     opciones = allowed_modules(user)
     if st.session_state.modulo not in opciones:
         st.session_state.modulo = opciones[0]

@@ -51,7 +51,7 @@ from order_utils import normalize_order_cart
 from permission_utils import modules_for_role
 from security import hash_password, is_password_hash, login_logo_tag, verify_password
 
-# Nuevos mÃ³dulos
+# Nuevos módulos
 from components.proveedores_utils import page_gestion_proveedores
 from components.promociones_utils import page_promociones
 from components.turnos_utils import page_gestion_turnos, widget_check_in_out
@@ -96,11 +96,11 @@ def bootstrap_database() -> None:
         st.error("No se pudo conectar con Supabase/PostgreSQL.")
         st.markdown(
             """
-            RevisÃ¡ en Streamlit Cloud > App settings > Secrets:
+            Revisá en Streamlit Cloud > App settings > Secrets:
 
             - `DATABASE_URL` debe empezar con `postgresql://`.
-            - Debe tener la contraseÃ±a real de Supabase, no `[YOUR-PASSWORD]`.
-            - Si la contraseÃ±a tiene sÃ­mbolos como `@`, `#`, `%` o `/`, debe estar codificada para URL.
+            - Debe tener la contraseña real de Supabase, no `[YOUR-PASSWORD]`.
+            - Si la contraseña tiene símbolos como `@`, `#`, `%` o `/`, debe estar codificada para URL.
             - El proyecto Supabase debe estar activo y sin bloqueo de cuota/billing.
             """
         )
@@ -798,7 +798,7 @@ def role_label(rol: str) -> str:
         "cocina": "Cocina",
         "caja": "Caja",
         "administrador": "Administrador",
-        "dueno": "DueÃ±o",
+        "dueno": "Dueño",
     }.get(rol, rol.title())
 
 
@@ -1440,14 +1440,14 @@ def page_cocina() -> None:
     en_cocina  = [p for p in pedidos if p["estado_comanda"] == "en_cocina"]
     listos     = [p for p in pedidos if p["estado_comanda"] == "listo"]
 
-    # â”€â”€ MÃ©tricas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Métricas ──────────────────────────────────────────────────
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Pendientes",      len(pendientes))
-    m2.metric("En preparaciÃ³n",  len(en_cocina))
+    m2.metric("En preparación",  len(en_cocina))
     m3.metric("Listos",          len(listos))
     m4.metric("Platos activos",  sum(int(i["cantidad"]) for p in pendientes + en_cocina for i in p["items"]))
 
-    # â”€â”€ Chef view + controles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Chef view + controles ─────────────────────────────────────
     top_left, top_right = st.columns([2.2, 1])
     with top_left:
         resumen = resumen_chef()
@@ -1466,25 +1466,25 @@ def page_cocina() -> None:
         btn_c1, btn_c2 = st.columns(2)
         with btn_c1:
             form_open = cocina_form_open
-            if st.button("âž• Nuevo Pedido", type="primary", use_container_width=True):
+            if st.button("✨ Nuevo Pedido", type="primary", use_container_width=True):
                 st.session_state["cocina_form_open"] = not form_open
                 if not form_open:
                     st.session_state["cocina_kart"] = {}
                 st.rerun()
         with btn_c2:
-            if st.button("ðŸ”„ Actualizar", use_container_width=True):
+            if st.button("🔄 Actualizar", use_container_width=True):
                 st.rerun()
         ultimo = st.session_state.get("ultimo_despachado")
         if ultimo:
-            st.caption(f"Ãšltimo: pedido #{ultimo['id_pedido']} mesa {ultimo['mesa']}")
-            if st.button("â†© Deshacer Ãºltimo despacho", use_container_width=True):
+            st.caption(f"Último: pedido #{ultimo['id_pedido']} mesa {ultimo['mesa']}")
+            if st.button("↩ Deshacer último despacho", use_container_width=True):
                 res = deshacer_ultimo_despacho()
                 if res["ok"]:
                     st.success("Despacho deshecho.")
                     st.rerun()
                 st.error(res["error"])
 
-    # â”€â”€ Formulario: Nuevo Pedido Manual â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Formulario: Nuevo Pedido Manual ──────────────────────────────
     if st.session_state.get("cocina_form_open", False):
         st.markdown("<div class='card' style='margin-bottom:1rem'>", unsafe_allow_html=True)
         st.subheader("Nuevo Pedido Manual")
@@ -1511,7 +1511,7 @@ def page_cocina() -> None:
                 with ctab:
                     prods = [p for p in menu_all if p["categoria"] == cat]
                     if not prods:
-                        st.caption("Sin productos en esta categorÃ­a.")
+                        st.caption("Sin productos en esta categoría.")
                         continue
                     for p in prods:
                         pid = int(p["id_producto"])
@@ -1552,7 +1552,7 @@ def page_cocina() -> None:
         with form_r:
             st.markdown("<div class='cart-title'>Resumen</div>", unsafe_allow_html=True)
             if not ckart:
-                st.info("AgregÃ¡ productos con +")
+                st.info("Agregá productos con +")
             else:
                 total_form = 0.0
                 for pid, item in list(ckart.items()):
@@ -1586,7 +1586,7 @@ def page_cocina() -> None:
             )
             id_usr_cocina = personal_cocina[0]["id_usuario"] if personal_cocina else 1
 
-            if st.button("âœ… Crear Pedido", type="primary", disabled=not ckart, use_container_width=True):
+            if st.button("✅ Crear Pedido", type="primary", disabled=not ckart, use_container_width=True):
                 try:
                     nuevo_id = crear_pedido(mesa_id, id_usr_cocina, ckart)
                     registrar_auditoria("cocina", "pedido_manual", f"Pedido {nuevo_id} mesa {mesa_id}")
@@ -1604,7 +1604,7 @@ def page_cocina() -> None:
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # â”€â”€ Tablero Kanban â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Tablero Kanban ────────────────────────────────────────────
     st.markdown("---")
 
     st.markdown("""
@@ -1672,18 +1672,18 @@ def page_cocina() -> None:
 
     col_pend, col_coci, col_list = st.columns(3)
 
-    # â”€â”€ Columna PENDIENTE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Columna PENDIENTE ─────────────────────────────────────────
     with col_pend:
         cards_html = "".join(_card_html(p) for p in pendientes) if pendientes else "<div class='kb-empty'>Sin comandas</div>"
         st.markdown(
             f"<div class='kb-col col-pend'>"
-            f"<div class='kb-col-head'><span class='kb-col-title'>â³ Pendiente</span>"
+            f"<div class='kb-col-head'><span class='kb-col-title'>⏳ Pendiente</span>"
             f"<span class='kb-badge'>{len(pendientes)}</span></div>"
             f"{cards_html}</div>",
             unsafe_allow_html=True,
         )
         for pedido in pendientes:
-            if st.button(f"â–¶ Iniciar  #{pedido['id_pedido']} Â· Mesa {pedido['numero_mesa']}",
+            if st.button(f"▶ Iniciar  #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
                          key=f"kb_ini_{pedido['id_pedido']}", type="primary", use_container_width=True):
                 res = avanzar_estado(pedido["id_pedido"], "pendiente")
                 if res["ok"]:
@@ -1694,18 +1694,18 @@ def page_cocina() -> None:
                 else:
                     st.error(res["error"])
 
-    # â”€â”€ Columna EN COCINA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Columna EN COCINA ─────────────────────────────────────────
     with col_coci:
-        cards_html = "".join(_card_html(p) for p in en_cocina) if en_cocina else "<div class='kb-empty'>Nada en preparaciÃ³n</div>"
+        cards_html = "".join(_card_html(p) for p in en_cocina) if en_cocina else "<div class='kb-empty'>Nada en preparación</div>"
         st.markdown(
             f"<div class='kb-col col-coci'>"
-            f"<div class='kb-col-head'><span class='kb-col-title'>ðŸ”¥ En preparaciÃ³n</span>"
+            f"<div class='kb-col-head'><span class='kb-col-title'>🔥 En preparación</span>"
             f"<span class='kb-badge'>{len(en_cocina)}</span></div>"
             f"{cards_html}</div>",
             unsafe_allow_html=True,
         )
         for pedido in en_cocina:
-            if st.button(f"ðŸš€ Listo  #{pedido['id_pedido']} Â· Mesa {pedido['numero_mesa']}",
+            if st.button(f"🚀 Listo  #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
                          key=f"kb_list_{pedido['id_pedido']}", type="primary", use_container_width=True):
                 res = avanzar_estado(pedido["id_pedido"], "en_cocina")
                 if res["ok"]:
@@ -1718,18 +1718,18 @@ def page_cocina() -> None:
                 else:
                     st.error(res["error"])
 
-    # â”€â”€ Columna LISTO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Columna LISTO ─────────────────────────────────────────────
     with col_list:
-        cards_html = "".join(_card_html(p) for p in listos) if listos else "<div class='kb-empty'>Nada listo todavÃ­a</div>"
+        cards_html = "".join(_card_html(p) for p in listos) if listos else "<div class='kb-empty'>Nada listo todavía</div>"
         st.markdown(
             f"<div class='kb-col col-list'>"
-            f"<div class='kb-col-head'><span class='kb-col-title'>âœ… Listo para servir</span>"
+            f"<div class='kb-col-head'><span class='kb-col-title'>✅ Listo para servir</span>"
             f"<span class='kb-badge'>{len(listos)}</span></div>"
             f"{cards_html}</div>",
             unsafe_allow_html=True,
         )
         for pedido in listos:
-            st.caption(f"#{pedido['id_pedido']} Â· Mesa {pedido['numero_mesa']}")
+            st.caption(f"#{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}")
 
 
 def page_caja() -> None:
@@ -2839,7 +2839,7 @@ def page_mesas() -> None:
         renglon = st.selectbox(
             "Producto",
             pendientes,
-            format_func=lambda r: f"Pedido #{r['id_pedido']} Â· {r['nombre']} Â· pendiente {r['pendiente']}",
+            format_func=lambda r: f"Pedido #{r['id_pedido']} · {r['nombre']} · pendiente {r['pendiente']}",
         )
         cantidad = st.number_input("Cantidad a anular", min_value=1, max_value=int(renglon["pendiente"]), value=1)
         motivo = st.text_input("Motivo de anulacion", placeholder="Error de carga, cliente cancela, cortesia...")
@@ -2858,7 +2858,7 @@ def _page_inventario_legacy_unused() -> None:
     bajos = [i for i in insumos if float(i["stock_actual"]) <= float(i["stock_minimo"])]
     if bajos:
         for item in bajos:
-            st.warning(f"Stock bajo: {item['nombre']} Â· {item['stock_actual']:.0f} / {item['stock_minimo']:.0f} {item['unidad_medida']}")
+            st.warning(f"Stock bajo: {item['nombre']} · {item['stock_actual']:.0f} / {item['stock_minimo']:.0f} {item['unidad_medida']}")
     else:
         st.success("Sin alertas de stock.")
 
@@ -3241,7 +3241,7 @@ def _render_reporte_analisis():
     with col1:
         st.subheader("Top productos")
         if productos.empty:
-            st.info("Sin ventas en el perÃ­odo.")
+            st.info("Sin ventas en el período.")
         else:
             st.dataframe(productos, hide_index=True, use_container_width=True)
             if not mozos.empty:
@@ -3250,7 +3250,7 @@ def _render_reporte_analisis():
     with col2:
         st.subheader("Ventas por mozo")
         if mozos.empty:
-            st.info("Sin ventas en el perÃ­odo.")
+            st.info("Sin ventas en el período.")
         else:
             st.dataframe(mozos, hide_index=True, use_container_width=True)
 
@@ -3782,7 +3782,7 @@ def main() -> None:
         page_promociones()
     elif module == "Turnos":
         page_gestion_turnos()
-    elif module == "FacturaciÃ³n":
+    elif module == "Facturación":
         page_facturacion_electronica()
     elif module == "Sistema":
         page_sistema()

@@ -6,15 +6,26 @@ Ejecución:   uvicorn api:app --reload --port 8000
 """
 from __future__ import annotations
 
+import hashlib
 from datetime import date, datetime
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from database import get_connection_direct, sql_date, ph, last_id
 
 app = FastAPI(title="COMANDAPRO ERP API", version="2.0")
+
+# ── CORS ──────────────────────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ── Modelos ───────────────────────────────────────────────────────────
@@ -23,6 +34,128 @@ class PedidoCreate(BaseModel):
     id_mesa: int
     id_usuario: int = 1
     items: list[dict]  # [{"id_producto": 1, "cantidad": 2, "observaciones": ""}]
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TerminalLoginRequest(BaseModel):
+    terminal: str  # mozo, cocina, caja
+
+
+# ── Auth Endpoints ────────────────────────────────────────────────────
+
+@app.post("/auth/login")
+def auth_login(req: LoginRequest):
+    """Autentica usuario con username + password (SHA256)."""
+    password_hash = hashlib.sha256(req.password.encode()).hexdigest()
+    conn = get_connection_direct()
+    try:
+        import config
+        if config.DB_ENGINE == "postgresql":
+            cur = conn.execute(
+                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE username=%s AND password_hash=%s",
+                (req.username, password_hash)
+            )
+        else:
+            cur = conn.execute(
+                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE username=? AND password_hash=?",
+                (req.username, password_hash)
+            )
+        user = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+
+    return {
+        "ok": True,
+        "user": {
+            "id_usuario": user["id_usuario"],
+            "nombre": user["nombre"],
+            "apellido": user["apellido"],
+            "rol": user["rol"],
+            "username": user["username"],
+        }
+    }
+
+
+@app.post("/auth/terminal")
+def auth_terminal(req: TerminalLoginRequest):
+    """Login directo por terminal (mozo, cocina, caja). Retorna el primer usuario con ese rol."""
+    role_map = {"mozo": "mozo", "cocina": "cocina", "caja": "administrador"}
+    rol = role_map.get(req.terminal)
+    if not rol:
+        raise HTTPException(status_code=400, detail=f"Terminal inválido: {req.terminal}")
+
+    conn = get_connection_direct()
+    try:
+        import config
+        if config.DB_ENGINE == "postgresql":
+            cur = conn.execute(
+                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE rol=%s LIMIT 1",
+                (rol,)
+            )
+        else:
+            cur = conn.execute(
+                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE rol=? LIMIT 1",
+                (rol,)
+            )
+        user = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not user:
+        raise HTTPException(status_code=404, detail=f"No hay usuario con rol '{rol}'")
+
+    return {
+        "ok": True,
+        "user": {
+            "id_usuario": user["id_usuario"],
+            "nombre": user["nombre"],
+            "apellido": user["apellido"],
+            "rol": user["rol"],
+            "username": user["username"],
+        }
+    }
+
+
+@app.post("/auth/admin")
+def auth_admin():
+    """Login directo como administrador (botón ACCESO ADMINISTRADOR)."""
+    conn = get_connection_direct()
+    try:
+        import config
+        if config.DB_ENGINE == "postgresql":
+            cur = conn.execute(
+                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE rol=%s LIMIT 1",
+                ("administrador",)
+            )
+        else:
+            cur = conn.execute(
+                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE rol=? LIMIT 1",
+                ("administrador",)
+            )
+        user = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="No hay usuario administrador")
+
+    return {
+        "ok": True,
+        "user": {
+            "id_usuario": user["id_usuario"],
+            "nombre": user["nombre"],
+            "apellido": user["apellido"],
+            "rol": user["rol"],
+            "username": user["username"],
+        }
+    }
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
