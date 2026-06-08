@@ -396,6 +396,8 @@ class _FallbackConnection:
     """Conexion de fallback que devuelve resultados vacios."""
     def execute(self, *args, **kwargs):
         return self
+    def executescript(self, *args, **kwargs):
+        return self
     def fetchall(self):
         return []
     def fetchone(self):
