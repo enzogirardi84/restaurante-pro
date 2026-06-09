@@ -219,7 +219,61 @@ def init_db(schema_file: str | None = None) -> dict:
     except Exception as e:
         return {"ok": False, "error": f"Error sembrando datos: {e}"}
 
+    # Sembrar platos premium si la tabla productos_menu esta vacia
+    try:
+        conn = get_connection_direct()
+        cur = conn.execute("SELECT COUNT(*) AS cnt FROM productos_menu")
+        row = cur.fetchone()
+        count = row["cnt"] if hasattr(row, "__getitem__") else row[0]
+        if count == 0:
+            _seed_menu_premium(conn)
+            conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
     return {"ok": True}
+
+
+def _seed_menu_premium(conn) -> None:
+    platos = [
+        (12000, "Entradas", "Provolone con mermelada de tomates y pesto, con escabeches y focaccia"),
+        (12000, "Entradas", "Pera asada con queso azul, nueces y miel sobre verdes"),
+        (12000, "Entradas", "Dúo empanadas carne cortada a cuchillo / humita y mozzarella"),
+        (12000, "Entradas", "Carpaccio de lomo curado, crema de parmesano, alcaparras, pistacho tostados, focaccia y hojas verdes fritas"),
+        (12000, "Entradas", "Tabla charcutería de elaboración propia, quesos, escabeches, alioli de ajo"),
+        (15000, "Pastas", "Rotolo di tata (de cabrito y verduras)"),
+        (15000, "Pastas", "Lasaña de pollo y espinaca al forno"),
+        (15000, "Pastas", "Creps de espinaca y parmesano con finas hierbas"),
+        (15000, "Pastas", "Cintas anchas en tinta de sepia con crema de mariscos"),
+        (15000, "Pastas", "Ñoquis boniato con manteca y almendras tostadas"),
+        (15000, "Pastas", "Cintas finas al huevo con fileto y estofado"),
+        (15000, "Pastas", "Cintas finas al huevo con crema de hongos de pino"),
+        (15000, "Pastas", "Cintas finas al huevo a la carbonara"),
+        (22000, "Carnes", "Ojo de bife con aligot de papa y salsa criolla"),
+        (22000, "Carnes", "Ojo de bife con salsa patrón"),
+        (22000, "Carnes", "Ojo de bife con salsa de hongos"),
+        (22000, "Carnes", "Lomo en demiglase con terrina de papa y vegetales glaseados"),
+        (22000, "Carnes", "Bondiola ahumada en reducción de miel y jengibre con batatas rotas"),
+        (22000, "Carnes", "Milanesa de entrecot con fideos al huevo con crema de hierbas"),
+        (18000, "Pescados", "Salmón rosado con manteca de lima y azafrán acompañado de ensalada tibia"),
+        (18000, "Pescados", "Trucha con alcaparras, manteca, naranja y miel, acompañado de papines y verduras salteadas"),
+        (18000, "Pescados", "Pacú con papas rústicas y hojas verdes acompañados de salsa criolla"),
+        (13000, "Comidas Criollas", "Locro criollo con verdeo picante"),
+        (13000, "Comidas Criollas", "Humita"),
+        (13000, "Comidas Criollas", "Guiso de lentejas"),
+        (8000, "Postres", "Tiramisú"),
+        (8000, "Postres", "Lingote de chocolate"),
+        (8000, "Postres", "Flan tradicional"),
+        (8000, "Postres", "Panna cotta con frutos rojos"),
+        (8000, "Postres", "Tarta vasca"),
+    ]
+    ph = "%s" if str(getattr(config, 'DB_ENGINE', 'sqlite')) == "postgresql" else "?"
+    for precio, categoria, nombre in platos:
+        try:
+            conn.execute(f"INSERT INTO productos_menu (nombre, precio_venta, categoria, activo) VALUES ({ph},{ph},{ph},1)", (nombre, precio, categoria))
+        except Exception:
+            pass
 
 
 def _seed_if_empty() -> None:
