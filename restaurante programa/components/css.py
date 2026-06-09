@@ -141,9 +141,35 @@ def inject_styles() -> None:
                 border-color: rgba(255,255,255,0.15) !important;
                 color: #e8e4dc !important;
                 background: transparent !important;
+                transition: all 0.2s ease-in-out !important;
+                border-left: 3px solid transparent !important;
+                text-align: left !important;
+                font-weight: 600 !important;
             }
             section[data-testid="stSidebar"] button:hover {
                 background: var(--nav-soft) !important;
+                border-left-color: rgba(201, 58, 43, 0.4) !important;
+                transform: translateX(3px) !important;
+            }
+            section[data-testid="stSidebar"] button:active {
+                transform: scale(0.97) !important;
+                background: rgba(201, 58, 43, 0.2) !important;
+                box-shadow: inset 0 2px 6px rgba(0,0,0,0.2) !important;
+            }
+            section[data-testid="stSidebar"] button[kind="primary"] {
+                background: rgba(201, 58, 43, 0.2) !important;
+                border-left: 3px solid var(--primary) !important;
+                font-weight: 800 !important;
+            }
+            section[data-testid="stSidebar"] button[kind="primary"]:hover {
+                background: rgba(201, 58, 43, 0.3) !important;
+            }
+            section[data-testid="stSidebar"] button[kind="primary"]:active {
+                transform: scale(0.97) !important;
+            }
+            section[data-testid="stSidebar"] button div {
+                transition: none !important;
+            }
                 border-color: var(--primary) !important;
             }
 

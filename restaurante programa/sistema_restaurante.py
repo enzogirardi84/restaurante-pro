@@ -43,7 +43,6 @@ from database import (
     procesar_cola_sincronizacion,
     registrar_auditoria,
     using_postgres,
-    rows as db_rows,
 )
 from cloud_config import app_name, cloud_status, database_url_warnings, default_service_percentage, masked_status_table, normalized_database_url
 from components.css import inject_styles, offline_banner, terminal_mode_styles, title, stat_card, auto_refresh
@@ -239,7 +238,7 @@ try:
     if _user_actual.get("rol") in ("administrador", "dueno"):
         _total_pg = 0
         if using_postgres():
-            _rows_pg = db_rows("SELECT COUNT(*) AS cnt FROM productos_menu")
+            _rows_pg = rows("SELECT COUNT(*) AS cnt FROM productos_menu")
             _total_pg = _rows_pg[0]["cnt"] if _rows_pg else 0
         _total_sqlite = 0
         try:
@@ -792,6 +791,7 @@ def sidebar() -> None:
         clase = "primary" if activo else "secondary"
         if st.sidebar.button(opt, key=f"nav_{opt}", type=clase, use_container_width=True):
             st.session_state.modulo = opt
+            st.session_state.sidebar_collapsed = True
             st.rerun()
     st.sidebar.divider()
     widget_check_in_out()
