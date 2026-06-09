@@ -10,6 +10,7 @@ import streamlit as st
 
 from database import execute_query, get_connection, registrar_auditoria
 from components.helpers import money as fmt_money, receta_producto, rows
+from components.categorias import CATEGORIAS_TOTAL, CATEGORIAS_MENU
 
 
 def get_menu(active_only: bool = True) -> list[dict]:
@@ -93,8 +94,7 @@ def _formulario_nuevo_producto():
         c1, c2 = st.columns(2)
         nombre = c1.text_input("Nombre del plato / bebida")
         precio = c1.number_input("Precio de venta", min_value=0.0, step=100.0, format="%.2f")
-        CATS = ["Entradas", "Pastas", "Carnes", "Pescados", "Comidas Criollas", "Postres", "bebidas"]
-        categoria = c2.selectbox("Categoria", CATS)
+        categoria = c2.selectbox("Categoria", CATEGORIAS_TOTAL)
         activo = c2.checkbox("Activo", value=True)
         guardado = st.form_submit_button("Guardar producto", type="primary", use_container_width=True)
         if guardado:
@@ -138,7 +138,7 @@ def _editor_productos():
             "id_producto": st.column_config.NumberColumn("ID", disabled=True, width="small"),
             "nombre": st.column_config.TextColumn("Nombre", required=True, width="large"),
             "precio_venta": st.column_config.NumberColumn("Precio $", min_value=0, step=100, format="$%.0f"),
-            "categoria": st.column_config.SelectboxColumn("Categoria", options=["Entradas", "Pastas", "Carnes", "Pescados", "Comidas Criollas", "Postres", "cocina", "bebidas"]),
+            "categoria": st.column_config.SelectboxColumn("Categoria", options=CATEGORIAS_TOTAL),
             "activo": st.column_config.CheckboxColumn("Activo"),
         },
     )

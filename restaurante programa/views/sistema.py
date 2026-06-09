@@ -66,20 +66,30 @@ def page_sistema() -> None:
         st.subheader("Datos comerciales y ticket")
         with st.form("config_restaurante"):
             c1, c2 = st.columns(2)
-            nombre = c1.text_input("Nombre del restaurante", value=cfg["nombre"])
-            identificacion = c2.text_input("CUIT/RUT/NIT", value=cfg["identificacion"])
-            direccion = st.text_input("Direccion", value=cfg["direccion"])
-            telefono = st.text_input("Telefono", value=cfg["telefono"])
-            servicio_pct = st.number_input("Porcentaje de servicio", min_value=0.0, max_value=50.0, value=float(service_percentage()), step=0.5)
-            footer = st.text_area("Texto final del ticket", value=cfg["ticket_footer"], height=80)
+            nombre = c1.text_input("Nombre del restaurante", value=cfg.get("nombre", ""))
+            identificacion = c2.text_input("CUIT/RUT/NIT", value=cfg.get("identificacion", ""))
+            direccion = st.text_input("Direccion", value=cfg.get("direccion", ""))
+            telefono = st.text_input("Telefono", value=cfg.get("telefono", ""))
+            try:
+                _pct_default = float(service_percentage())
+            except (ValueError, TypeError):
+                _pct_default = 10.0
+            servicio_pct = st.number_input("Porcentaje de servicio", min_value=0.0, max_value=50.0, value=_pct_default, step=0.5)
+            footer = st.text_area("Texto final del ticket", value=cfg.get("ticket_footer", ""), height=80)
             if st.form_submit_button("Guardar configuracion", type="primary"):
-                set_config("restaurante_nombre", nombre.strip() or APP_TITLE)
-                set_config("restaurante_identificacion", identificacion.strip())
-                set_config("restaurante_direccion", direccion.strip())
-                set_config("restaurante_telefono", telefono.strip())
-                set_config("servicio_porcentaje", str(float(servicio_pct)))
-                set_config("ticket_footer", footer.strip() or "Gracias por su visita.")
-                registrar_auditoria("sistema", "config_restaurante", nombre.strip() or APP_TITLE)
+                _nombre = (nombre or "").strip() or APP_TITLE
+                _id = (identificacion or "").strip() or ""
+                _dir = (direccion or "").strip() or ""
+                _tel = (telefono or "").strip() or ""
+                _pct = str(max(0.0, min(50.0, float(servicio_pct or 0))))
+                _footer = (footer or "").strip() or "Gracias por su visita."
+                set_config("restaurante_nombre", _nombre)
+                set_config("restaurante_identificacion", _id)
+                set_config("restaurante_direccion", _dir)
+                set_config("restaurante_telefono", _tel)
+                set_config("servicio_porcentaje", _pct)
+                set_config("ticket_footer", _footer)
+                registrar_auditoria("sistema", "config_restaurante", _nombre)
                 st.success("Configuracion guardada.")
                 st.rerun()
 

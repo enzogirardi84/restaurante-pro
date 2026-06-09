@@ -9,6 +9,7 @@ from html import escape
 import streamlit as st
 import pandas as pd
 from database import get_connection, init_db, rows as db_rows
+from components.categorias import CATEGORIAS_MENU
 
 
 COLOR_PRIMARY = "#b42318"
@@ -646,8 +647,7 @@ def pantalla_pedido() -> None:
             placeholder="Ej: milanesa, vino, postre...",
         ).strip().lower()
 
-        CATEGORIAS_VISIBLES = ["Entradas", "Pastas", "Carnes", "Pescados", "Comidas Criollas", "Postres", "cocina", "bebidas"]
-        categorias = [(c, c) for c in CATEGORIAS_VISIBLES]
+        categorias = [(c, c) for c in CATEGORIAS_MENU + ["cocina", "bebidas"]]
         tabs = st.tabs([label for _, label in categorias])
         for tab, (cat_key, _cat_label) in zip(tabs, categorias):
             with tab:

@@ -78,6 +78,44 @@ def inject_styles() -> None:
                 transform: scale(0.98) !important;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
             }
+            /* Inputs premium con borde redondeado y foco corporativo */
+            input, textarea, select, div[data-baseweb="input"] input,
+            div[data-baseweb="textarea"] textarea, div[data-baseweb="select"] input {
+                border-radius: 8px !important;
+                border: 1px solid #d0c8bc !important;
+                transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out !important;
+                padding: 0.4rem 0.6rem !important;
+            }
+            input:focus, textarea:focus, select:focus,
+            div[data-baseweb="input"] input:focus,
+            div[data-baseweb="textarea"] textarea:focus {
+                border-color: #624a3e !important;
+                box-shadow: 0 0 0 2px rgba(98, 74, 62, 0.15) !important;
+                outline: none !important;
+            }
+            div[data-baseweb="input"] {
+                border: none !important;
+                border-radius: 0 !important;
+            }
+            div.stTextInput, div.stTextArea, div.stSelectbox {
+                margin-bottom: 0.4rem !important;
+            }
+            /* Metric cards mas compactas */
+            div[data-testid="metric-container"] {
+                background: white;
+                border: 1px solid #e8e2d8;
+                border-radius: 10px;
+                padding: 0.7rem 0.9rem !important;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            }
+            div[data-testid="metric-container"] label {
+                color: #6b655c !important;
+                font-size: 0.85rem !important;
+            }
+            div[data-testid="metric-container"] div {
+                color: #1e1c19 !important;
+                font-weight: 700 !important;
+            }
             html, body, .stApp {
                 background: var(--bg);
                 color: var(--ink);
