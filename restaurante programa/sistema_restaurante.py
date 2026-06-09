@@ -919,7 +919,7 @@ def mozo_operativo() -> dict:
     mozos = get_mozos()
     if not mozos:
         return st.session_state.usuario
-    if st.session_state.mozo_operativo_id is None:
+    if st.session_state.get("mozo_operativo_id") is None:
         st.session_state.mozo_operativo_id = mozos[0]["id_usuario"]
     seleccionado = next((m for m in mozos if m["id_usuario"] == st.session_state.mozo_operativo_id), mozos[0])
     st.session_state.mozo_operativo_id = seleccionado["id_usuario"]
