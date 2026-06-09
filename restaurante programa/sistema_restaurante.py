@@ -804,6 +804,8 @@ def get_menu(active_only: bool = True) -> list[dict]:
             {where}
             ORDER BY categoria, nombre
         """)
+        if not productos:
+            st.warning("No se pudieron cargar los platos. Revisá la conexion a la base de datos.", icon="⚠")
     for producto in productos:
         precio_original = float(producto["precio_venta"])
         precio_final = calcular_precio_promocion(producto["categoria"], precio_original)

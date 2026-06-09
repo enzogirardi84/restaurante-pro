@@ -1436,12 +1436,26 @@ def _get_unidad(id_insumo):
 
 def seed_menu_premium() -> None:
     """Inserta los 30 platos premium si la tabla productos_menu esta vacia."""
-    conn = get_connection()
     try:
-        count = conn.execute("SELECT COUNT(*) AS cnt FROM productos_menu").fetchone()["cnt"]
-        if count > 0:
+        conn = get_connection()
+    except Exception:
+        return
+    try:
+        conn.execute("SELECT COUNT(*) FROM productos_menu").fetchone()
+    except Exception:
+        conn.close()
+        init_db()
+        try:
+            conn = get_connection()
+        except Exception:
+            return
+    try:
+        cur = conn.execute("SELECT COUNT(*) AS cnt FROM productos_menu")
+        if cur.fetchone()["cnt"] > 0:
+            conn.close()
             return
     except Exception:
+        conn.close()
         return
     platos = [
         ("Provolone con mermelada de tomates y pesto, con escabeches y focaccia", 12000, "Entradas"),
