@@ -465,21 +465,24 @@ class _FallbackConnection:
 
 
 _SQLITE_INIT_DONE = False
+_PG_FALLBACK = False
 
 
 def get_connection(raise_on_error: bool = False):
     """Retorna una conexion SQLite local o PostgreSQL/Supabase."""
-    global _SQLITE_INIT_DONE
-    pg_url = normalized_database_url()
-    if pg_url:
-        try:
-            pool = get_pg_pool(pg_url)
-            return PgConnectionAdapter(pg_url, conn=pool.getconn(), pool=pool)
-        except Exception as exc:
-            if raise_on_error:
-                raise
-            import warnings
-            warnings.warn(f"PostgreSQL no disponible ({exc}). Usando SQLite local.")
+    global _SQLITE_INIT_DONE, _PG_FALLBACK
+    if not _PG_FALLBACK:
+        pg_url = normalized_database_url()
+        if pg_url:
+            try:
+                pool = get_pg_pool(pg_url)
+                return PgConnectionAdapter(pg_url, conn=pool.getconn(), pool=pool)
+            except Exception as exc:
+                if raise_on_error:
+                    raise
+                import warnings
+                _PG_FALLBACK = True
+                warnings.warn(f"PostgreSQL no disponible ({exc}). Usando SQLite local (desactivado hasta reinicio).")
     DB_DIR.mkdir(parents=True, exist_ok=True)
     try:
         conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
