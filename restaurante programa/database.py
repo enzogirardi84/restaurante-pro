@@ -632,63 +632,73 @@ def init_db(schema_file: str | None = None) -> None:
     """
     local_schema = str(Path(__file__).parent / "schema.sql")
 
-    # ── Siempre inicializar SQLite local (base de fallback) ──
-    conn = get_connection()
+    # ── Inicializar SIEMPRE SQLite local (base de fallback) ──
+    _init_sqlite_local(local_schema)
+
+    # ── Inicializar PostgreSQL via conexion DIRECTA (5432) ──
+    _init_postgres_directa(schema_file)
+
+    # ── Sembrar datos de ejemplo SOLO contra SQLite local ──
+    # (la conexion a Supabase se usa para CRUD, no para schema management)
+    _seed_sqlite_local()
+
+
+def _init_sqlite_local(schema_path: str) -> None:
+    """Inicializa SQLite local con el schema completo."""
     try:
-        with open(local_schema, "r", encoding="utf-8") as f:
+        conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.row_factory = sqlite3.Row
+        with open(schema_path, "r", encoding="utf-8") as f:
             conn.executescript(f.read())
         conn.commit()
+        conn.close()
     except Exception as exc:
         import warnings
-        warnings.warn(f"No se pudo inicializar SQLite local: {exc}")
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        warnings.warn(f"Error inicializando SQLite local: {exc}")
 
-    # ── Inicializar PostgreSQL (usa conexion DIRECTA 5432 para DDL) ──
-    if _pg_url_directa := normalized_database_url_directa():
-        pg_schema = schema_file or str(SUPABASE_SCHEMA_PATH)
-        try:
-            import psycopg
-            _pg_conn_ddl = psycopg.connect(_pg_url_directa)
-            with open(pg_schema, "r", encoding="utf-8") as f:
-                _sql = f.read()
-            for _stmt in _sql.split(";"):
-                _stmt = _stmt.strip()
-                if _stmt and not _stmt.startswith("\\"):
-                    try:
-                        _pg_conn_ddl.execute(_stmt)
-                    except Exception:
-                        pass  # ignora errores DDL (IF NOT EXISTS ya protege)
-            _pg_conn_ddl.commit()
-            _pg_conn_ddl.close()
-        except Exception as exc:
-            import warnings
-            warnings.warn(f"No se pudo inicializar PostgreSQL directa: {exc}. Usando pooler.")
-            # Fallback: intentar con pooler por si alcanza
-            if using_postgres():
+
+def _init_postgres_directa(schema_file: str | None = None) -> None:
+    """Ejecuta DDL del schema contra PostgreSQL via conexion directa (5432)."""
+    pg_url = normalized_database_url_directa()
+    if not pg_url:
+        return
+    schema_path = schema_file or str(SUPABASE_SCHEMA_PATH)
+    try:
+        import psycopg
+        pg_conn = psycopg.connect(pg_url, connect_timeout=10)
+        with open(schema_path, "r", encoding="utf-8") as f:
+            sql_content = f.read()
+        for stmt in sql_content.split(";"):
+            stmt = stmt.strip()
+            if stmt and not stmt.startswith("\\"):
                 try:
-                    pg_conn = get_connection()
-                    try:
-                        with open(pg_schema, "r", encoding="utf-8") as f:
-                            pg_conn.executescript(f.read())
-                        pg_conn.commit()
-                    finally:
-                        pg_conn.close()
+                    pg_conn.execute(stmt)
                 except Exception:
                     pass
+        pg_conn.commit()
+        pg_conn.close()
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"No se pudo inicializar PostgreSQL directa: {exc}")
 
-    # Sembrar datos de ejemplo solo si la tabla está vacía
-    conn2 = get_connection()
+
+def _seed_sqlite_local() -> None:
+    """Siembra datos de ejemplo SOLO en SQLite local para evitar
+    sqlite_master y PRAGMA en PostgreSQL."""
     try:
-        count = conn2.execute("SELECT COUNT(*) AS cnt FROM usuarios").fetchone()["cnt"]
+        conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.row_factory = sqlite3.Row
+        count = conn.execute("SELECT COUNT(*) AS cnt FROM usuarios").fetchone()["cnt"]
         if count == 0:
-            _seed_inserts(conn2)
-        _ensure_operational_schema(conn2)
-    finally:
-        conn2.close()
+            _seed_inserts(conn)
+        _ensure_operational_schema(conn)
+        conn.close()
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"Error sembrando datos en SQLite local: {exc}")
 
 
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
