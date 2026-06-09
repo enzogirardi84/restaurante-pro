@@ -797,15 +797,18 @@ def get_menu(active_only: bool = True) -> list[dict]:
     """)
     if not productos:
         from database import seed_menu_premium
+        _antes = rows("SELECT COUNT(*) AS cnt FROM productos_menu")
         seed_menu_premium()
+        _despues = rows("SELECT COUNT(*) AS cnt FROM productos_menu")
         productos = rows(f"""
             SELECT id_producto, nombre, precio_venta, categoria, activo
             FROM productos_menu
             {where}
             ORDER BY categoria, nombre
         """)
+        _total = _despues[0]["cnt"] if _despues else 0
         if not productos:
-            st.warning("No se pudieron cargar los platos. Revisá la conexion a la base de datos.", icon="⚠")
+            st.warning(f"No se pudieron cargar los platos. Total en DB: {_total} (antes: {_antes[0]['cnt'] if _antes else 0})", icon="⚠")
     for producto in productos:
         precio_original = float(producto["precio_venta"])
         precio_final = calcular_precio_promocion(producto["categoria"], precio_original)
