@@ -646,11 +646,8 @@ def pantalla_pedido() -> None:
             placeholder="Ej: milanesa, vino, postre...",
         ).strip().lower()
 
-        categorias = [
-            ("cocina", "Cocina"),
-            ("bebidas", "Bebidas"),
-            ("postres", "Postres"),
-        ]
+        CATEGORIAS_VISIBLES = ["Entradas", "Pastas", "Carnes", "Pescados", "Comidas Criollas", "Postres", "cocina", "bebidas"]
+        categorias = [(c, c) for c in CATEGORIAS_VISIBLES]
         tabs = st.tabs([label for _, label in categorias])
         for tab, (cat_key, _cat_label) in zip(tabs, categorias):
             with tab:

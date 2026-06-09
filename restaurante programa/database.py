@@ -990,6 +990,7 @@ def _ensure_operational_schema(conn: sqlite3.Connection) -> None:
             (clave, valor),
         )
 
+    seed_menu_premium()
     conn.execute("UPDATE usuarios SET pin = '1234' WHERE rol = 'mozo' AND (pin IS NULL OR pin = '0000')")
     conn.execute("UPDATE usuarios SET pin = '2222' WHERE rol = 'cocina' AND (pin IS NULL OR pin = '0000')")
     conn.execute("UPDATE usuarios SET pin = '3333' WHERE rol = 'caja' AND (pin IS NULL OR pin = '0000')")
@@ -1397,6 +1398,57 @@ def _get_unidad(id_insumo):
 
 
 # ── Seed de pedidos de prueba para la demo ────────────────────────────
+
+def seed_menu_premium() -> None:
+    """Inserta los 30 platos premium si la tabla productos_menu esta vacia."""
+    conn = get_connection()
+    try:
+        count = conn.execute("SELECT COUNT(*) AS cnt FROM productos_menu").fetchone()["cnt"]
+        if count > 0:
+            return
+    except Exception:
+        return
+    platos = [
+        ("Provolone con mermelada de tomates y pesto, con escabeches y focaccia", 12000, "Entradas"),
+        ("Pera asada con queso azul, nueces y miel sobre verdes", 12000, "Entradas"),
+        ("Dúo empanadas carne cortada a cuchillo / humita y mozzarella", 12000, "Entradas"),
+        ("Carpaccio de lomo curado, crema de parmesano, alcaparras, pistacho tostados, focaccia y hojas verdes fritas", 12000, "Entradas"),
+        ("Tabla charcutería de elaboración propia, quesos, escabeches, alioli de ajo", 12000, "Entradas"),
+        ("Rotolo di tata (de cabrito y verduras)", 15000, "Pastas"),
+        ("Lasaña de pollo y espinaca al forno", 15000, "Pastas"),
+        ("Creps de espinaca y parmesano con finas hierbas", 15000, "Pastas"),
+        ("Cintas anchas en tinta de sepia con crema de mariscos", 15000, "Pastas"),
+        ("Ñoquis boniato con manteca y almendras tostadas", 15000, "Pastas"),
+        ("Cintas finas al huevo con fileto y estofado", 15000, "Pastas"),
+        ("Cintas finas al huevo con crema de hongos de pino", 15000, "Pastas"),
+        ("Cintas finas al huevo a la carbonara", 15000, "Pastas"),
+        ("Ojo de bife con aligot de papa y salsa criolla", 22000, "Carnes"),
+        ("Ojo de bife con salsa patrón", 22000, "Carnes"),
+        ("Ojo de bife con salsa de hongos", 22000, "Carnes"),
+        ("Lomo en demiglase con terrina de papa y vegetales glaseados", 22000, "Carnes"),
+        ("Bondiola ahumada en reducción de miel y jengibre con batatas rotas", 22000, "Carnes"),
+        ("Milanesa de entrecot con fideos al huevo con crema de hierbas", 22000, "Carnes"),
+        ("Salmón rosado con manteca de lima y azafrán acompañado de ensalada tibia", 18000, "Pescados"),
+        ("Trucha con alcaparras, manteca, naranja y miel, acompañado de papines y verduras salteadas", 18000, "Pescados"),
+        ("Pacú con papas rústicas y hojas verdes acompañados de salsa criolla", 18000, "Pescados"),
+        ("Locro criollo con verdeo picante", 13000, "Comidas Criollas"),
+        ("Humita", 13000, "Comidas Criollas"),
+        ("Guiso de lentejas", 13000, "Comidas Criollas"),
+        ("Tiramisú", 8000, "Postres"),
+        ("Lingote de chocolate", 8000, "Postres"),
+        ("Flan tradicional", 8000, "Postres"),
+        ("Panna cotta con frutos rojos", 8000, "Postres"),
+        ("Tarta vasca", 8000, "Postres"),
+    ]
+    for nombre, precio, categoria in platos:
+        try:
+            conn.execute("INSERT OR IGNORE INTO productos_menu (nombre, precio_venta, categoria, activo) VALUES (?, ?, ?, 1)",
+                         (nombre, precio, categoria))
+        except Exception:
+            pass
+    conn.commit()
+    conn.close()
+
 
 def seed_pedidos_demo() -> None:
     """Crea pedidos de ejemplo para probar la pantalla KDS."""
