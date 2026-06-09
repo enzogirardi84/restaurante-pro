@@ -14,6 +14,8 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 SECRET_KEYS = (
     "DB_ENGINE",
     "DATABASE_URL",
+    "DATABASE_URL_POOLER",
+    "DATABASE_URL_DIRECTA",
     "SUPABASE_DB_URL",
     "SUPABASE_URL",
     "SUPABASE_ANON_KEY",
@@ -26,13 +28,19 @@ SECRET_KEYS = (
 @dataclass(frozen=True)
 class CloudStatus:
     database_url: bool
+    database_url_pooler: bool
+    database_url_directa: bool
     supabase_url: bool
     supabase_anon_key: bool
     supabase_service_role_key: bool
 
     @property
     def ready_for_postgres(self) -> bool:
-        return self.database_url
+        return self.database_url or self.database_url_pooler
+
+    @property
+    def ready_for_ddl(self) -> bool:
+        return bool(self.database_url_directa or self.database_url)
 
     @property
     def ready_for_supabase_api(self) -> bool:
@@ -81,6 +89,18 @@ def database_url() -> str:
     return get_secret("DATABASE_URL") or get_secret("SUPABASE_DB_URL")
 
 
+def database_url_pooler() -> str:
+    """URL del pooler transaccional (puerto 6543) para CRUD diario.
+    Si no existe, cae a DATABASE_URL."""
+    return get_secret("DATABASE_URL_POOLER") or database_url()
+
+
+def database_url_directa() -> str:
+    """URL directa (puerto 5432) para DDL y migraciones.
+    Si no existe, cae a DATABASE_URL."""
+    return get_secret("DATABASE_URL_DIRECTA") or database_url()
+
+
 def db_engine() -> str:
     """Motor de base solicitado por configuracion."""
     return (get_secret("DB_ENGINE") or "").strip().lower()
@@ -102,19 +122,33 @@ def default_service_percentage(default: float = 10) -> float:
         return float(default)
 
 
-def normalized_database_url() -> str:
-    """Devuelve DATABASE_URL con SSL requerido para Supabase."""
-    if db_engine() in {"sqlite", "local"}:
-        return ""
-    raw = database_url()
-    if not raw:
-        return ""
-    parsed = urlparse(raw)
+def _ensure_sslmode(url: str) -> str:
+    parsed = urlparse(url)
     if parsed.scheme not in {"postgres", "postgresql"}:
-        return raw
+        return url
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     query.setdefault("sslmode", "require")
     return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def normalized_database_url() -> str:
+    """Devuelve DATABASE_URL del pooler (6543) con SSL para CRUD diario."""
+    if db_engine() in {"sqlite", "local"}:
+        return ""
+    raw = database_url_pooler()
+    if not raw:
+        return ""
+    return _ensure_sslmode(raw)
+
+
+def normalized_database_url_directa() -> str:
+    """Devuelve DATABASE_URL directa (5432) para DDL y migraciones."""
+    if db_engine() in {"sqlite", "local"}:
+        return ""
+    raw = database_url_directa()
+    if not raw:
+        return ""
+    return _ensure_sslmode(raw)
 
 
 def database_url_warnings() -> list[str]:
@@ -134,6 +168,8 @@ def database_url_warnings() -> list[str]:
 def cloud_status() -> CloudStatus:
     return CloudStatus(
         database_url=bool(normalized_database_url()),
+        database_url_pooler=bool(get_secret("DATABASE_URL_POOLER")),
+        database_url_directa=bool(get_secret("DATABASE_URL_DIRECTA")),
         supabase_url=bool(supabase_url()),
         supabase_anon_key=bool(get_secret("SUPABASE_ANON_KEY")),
         supabase_service_role_key=bool(get_secret("SUPABASE_SERVICE_ROLE_KEY")),
@@ -144,14 +180,19 @@ def masked_status_table() -> list[dict[str, str]]:
     status = cloud_status()
     return [
         {
-            "secreto": "DATABASE_URL o SUPABASE_DB_URL",
+            "secreto": "DATABASE_URL (pooler 6543)",
             "estado": "Cargado" if status.database_url else "Pendiente",
-            "uso": "Base PostgreSQL de Supabase para operar en la nube",
+            "uso": "Conexion transaccional diaria (CRUD)",
+        },
+        {
+            "secreto": "DATABASE_URL_DIRECTA (5432)",
+            "estado": "Cargado" if status.database_url_directa else "Pendiente",
+            "uso": "Conexion directa para DDL y migraciones",
         },
         {
             "secreto": "SUPABASE_URL",
             "estado": "Cargado" if status.supabase_url else "Pendiente",
-            "uso": "API de Supabase, no reemplaza la conexion PostgreSQL",
+            "uso": "API de Supabase",
         },
         {
             "secreto": "SUPABASE_ANON_KEY",

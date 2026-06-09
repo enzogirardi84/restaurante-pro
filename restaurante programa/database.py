@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from cloud_config import normalized_database_url
+from cloud_config import normalized_database_url, normalized_database_url_directa
 
 DB_DIR = Path(__file__).parent / "data"
 DB_PATH = DB_DIR / "restaurante.db"
@@ -647,20 +647,38 @@ def init_db(schema_file: str | None = None) -> None:
         except Exception:
             pass
 
-    # ── Inicializar PostgreSQL si esta configurado ──
-    if using_postgres():
+    # ── Inicializar PostgreSQL (usa conexion DIRECTA 5432 para DDL) ──
+    if _pg_url_directa := normalized_database_url_directa():
         pg_schema = schema_file or str(SUPABASE_SCHEMA_PATH)
         try:
-            pg_conn = get_connection()
-            try:
-                with open(pg_schema, "r", encoding="utf-8") as f:
-                    pg_conn.executescript(f.read())
-                pg_conn.commit()
-            finally:
-                pg_conn.close()
+            import psycopg
+            _pg_conn_ddl = psycopg.connect(_pg_url_directa)
+            with open(pg_schema, "r", encoding="utf-8") as f:
+                _sql = f.read()
+            for _stmt in _sql.split(";"):
+                _stmt = _stmt.strip()
+                if _stmt and not _stmt.startswith("\\"):
+                    try:
+                        _pg_conn_ddl.execute(_stmt)
+                    except Exception:
+                        pass  # ignora errores DDL (IF NOT EXISTS ya protege)
+            _pg_conn_ddl.commit()
+            _pg_conn_ddl.close()
         except Exception as exc:
             import warnings
-            warnings.warn(f"No se pudo inicializar PostgreSQL: {exc}. Usando solo SQLite.")
+            warnings.warn(f"No se pudo inicializar PostgreSQL directa: {exc}. Usando pooler.")
+            # Fallback: intentar con pooler por si alcanza
+            if using_postgres():
+                try:
+                    pg_conn = get_connection()
+                    try:
+                        with open(pg_schema, "r", encoding="utf-8") as f:
+                            pg_conn.executescript(f.read())
+                        pg_conn.commit()
+                    finally:
+                        pg_conn.close()
+                except Exception:
+                    pass
 
     # Sembrar datos de ejemplo solo si la tabla está vacía
     conn2 = get_connection()
