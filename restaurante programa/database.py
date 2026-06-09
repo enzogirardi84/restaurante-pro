@@ -701,8 +701,10 @@ def _seed_sqlite_local() -> None:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.row_factory = sqlite3.Row
         count = conn.execute("SELECT COUNT(*) AS cnt FROM usuarios").fetchone()["cnt"]
-        if count == 0:
-            _seed_inserts(conn)
+        if count > 0:
+            conn.close()
+            return
+        _seed_inserts(conn)
         _ensure_operational_schema(conn)
         conn.close()
     except Exception as exc:

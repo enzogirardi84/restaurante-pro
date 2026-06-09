@@ -214,15 +214,9 @@ def _asegurar_sqlite_local():
     except Exception as exc:
         _w.warn(f"No se pudo restaurar SQLite: {exc}")
 
-# ── Parche de depuracion visual ────────────────────────────────────────
-try:
-    _asegurar_sqlite_local()
-except Exception as _exc_clone:
-    user = st.session_state.get("usuario", {})
-    if user.get("rol") in ("administrador", "dueno"):
-        st.error("Error al restaurar SQLite desde Supabase")
-        st.exception(_exc_clone)
-
+# ── Arranque de bases de datos ─────────────────────────────────────────
+# _asegurar_sqlite_local se movio a database.py: se ejecuta dentro de init_db()
+# para evitar pantalla en blanco por restore bloqueante a nivel modulo.
 bootstrap_database()
 register_app_boot_once()
 
