@@ -234,6 +234,15 @@ def obtener_menu() -> list[dict]:
              WHERE activo = 1
              ORDER BY categoria, nombre
         """).fetchall()
+        if not rows:
+            from database import seed_menu_premium
+            seed_menu_premium()
+            rows = conn.execute("""
+                SELECT id_producto, nombre, precio_venta, categoria
+                  FROM productos_menu
+                 WHERE activo = 1
+                 ORDER BY categoria, nombre
+            """).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -647,7 +656,7 @@ def pantalla_pedido() -> None:
             placeholder="Ej: milanesa, vino, postre...",
         ).strip().lower()
 
-        categorias = [(c, c) for c in CATEGORIAS_MENU + ["cocina", "bebidas"]]
+        categorias = [(c, c) for c in CATEGORIAS_MENU]
         tabs = st.tabs([label for _, label in categorias])
         for tab, (cat_key, _cat_label) in zip(tabs, categorias):
             with tab:

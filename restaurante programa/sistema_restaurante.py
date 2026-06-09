@@ -795,6 +795,15 @@ def get_menu(active_only: bool = True) -> list[dict]:
         {where}
         ORDER BY categoria, nombre
     """)
+    if not productos:
+        from database import seed_menu_premium
+        seed_menu_premium()
+        productos = rows(f"""
+            SELECT id_producto, nombre, precio_venta, categoria, activo
+            FROM productos_menu
+            {where}
+            ORDER BY categoria, nombre
+        """)
     for producto in productos:
         precio_original = float(producto["precio_venta"])
         precio_final = calcular_precio_promocion(producto["categoria"], precio_original)
@@ -2635,15 +2644,14 @@ def page_mozo() -> None:
     left, right = st.columns([1.62, 0.88], gap="large")
     menu = get_menu()
     with left:
-        from components.categorias import CATEGORIAS_TOTAL
+        from components.categorias import CATEGORIAS_MENU
         filtro = st.text_input("Buscar producto", placeholder="Escribi nombre del plato...").strip().lower()
         if filtro:
             _resultados = [p for p in menu if filtro in p["nombre"].lower()]
             if len(_resultados) > 0:
                 st.caption(f"{len(_resultados)} resultado(s) para '{filtro}'")
-        _cats_ui = ["Entradas", "Pastas", "Carnes", "Pescados", "Comidas Criollas", "Postres", "cocina", "bebidas"]
-        tabs = st.tabs(_cats_ui)
-        for tab, cat in zip(tabs, _cats_ui):
+        tabs = st.tabs(CATEGORIAS_MENU)
+        for tab, cat in zip(tabs, CATEGORIAS_MENU):
             with tab:
                 productos = [p for p in menu if p["categoria"] == cat and (not filtro or filtro in p["nombre"].lower())]
                 if not productos:
