@@ -128,6 +128,7 @@ def _ensure_sslmode(url: str) -> str:
         return url
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     query.setdefault("sslmode", "require")
+    query.setdefault("connect_timeout", "5")
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 

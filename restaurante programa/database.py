@@ -19,9 +19,9 @@ SUPABASE_SCHEMA_PATH = Path(__file__).parent / "supabase" / "schema.sql"
 ADMIN_PASSWORD_HASH = "pbkdf2_sha256$260000$restaurante_pro_admin$3bf3e011536522835b606cc8b6d62689977bae8961ac46f703a8519b5cbb7d71"
 ANAHI_PASSWORD_HASH = "pbkdf2_sha256$260000$restaurante_pro_anahigilardi$4dddc291f7d7d9355d779938477655ad0e21179cc056648b7b1ecf8e68121815"
 ENZO_PASSWORD_HASH = "pbkdf2_sha256$260000$restaurante_pro_enzogirardi$43d87f64ede3c7d3ad5498e4c62d1cd272b03231219b42bdbff0b3806b37969b"
-PG_POOL_MIN_SIZE = 1
-PG_POOL_MAX_SIZE = 5
-PG_POOL_TIMEOUT = 10
+PG_POOL_MIN_SIZE = 0
+PG_POOL_MAX_SIZE = 3
+PG_POOL_TIMEOUT = 5
 _PG_POOL = None
 _PG_POOL_DSN = None
 
