@@ -317,13 +317,11 @@ def rows(sql: str, params: tuple = ()) -> list[dict]:
     conn = get_connection()
     try:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
-    except Exception as _ex:
-        st.error(f"Error BD: {type(_ex).__name__}: {_ex}")
-        return []
     finally:
         try:
             conn.close()
         except Exception:
+            pass
             pass
 
 
@@ -590,7 +588,6 @@ def service_amount(subtotal: float) -> float:
     return round(float(subtotal) * service_percentage() / 100)
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def init_session() -> None:
     # Mobile detection via query param (set by JS on first load)
     mobile = st.query_params.get("mobile")
