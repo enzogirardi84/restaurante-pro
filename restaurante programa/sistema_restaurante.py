@@ -94,23 +94,16 @@ def bootstrap_database() -> None:
     try:
         bootstrap_database_once()
     except Exception as exc:
-        st.error("No se pudo conectar con Supabase/PostgreSQL.")
-        st.markdown(
-            """
-            Revisá en Streamlit Cloud > App settings > Secrets:
-
-            - `DATABASE_URL` debe empezar con `postgresql://`.
-            - Debe tener la contraseña real de Supabase, no `[YOUR-PASSWORD]`.
-            - Si la contraseña tiene símbolos como `@`, `#`, `%` o `/`, debe estar codificada para URL.
-            - El proyecto Supabase debe estar activo y sin bloqueo de cuota/billing.
-            """
+        import warnings as _w
+        _w.warn(f"Supabase no disponible ({type(exc).__name__}). Usando SQLite local.")
+        st.warning(
+            "Supabase no disponible. La app opera en modo local SQLite. "
+            "Los datos se sincronizaran cuando la conexion se restablezca."
         )
-        warnings = database_url_warnings()
-        if warnings:
-            for warning in warnings:
-                st.warning(warning)
-        st.caption(f"Detalle tecnico sin secretos: {type(exc).__name__}")
-        st.stop()
+        with st.expander("Detalle tecnico", expanded=False):
+            st.caption(f"Error: {type(exc).__name__}")
+            if str(exc):
+                st.caption(str(exc)[:200])
 
 def app_build_label() -> str:
     sha = os.environ.get("GITHUB_SHA", "").strip()
