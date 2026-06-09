@@ -463,10 +463,12 @@ class _FallbackConnection:
         return 0
 
 
+_SQLITE_INIT_DONE = False
+
+
 def get_connection(raise_on_error: bool = False):
-    """Retorna una conexion SQLite local o PostgreSQL/Supabase.
-    Si PostgreSQL falla, FALLBACK AUTOMATICO a SQLite local
-    en vez de devolver una conexion fantasma que pierde datos."""
+    """Retorna una conexion SQLite local o PostgreSQL/Supabase."""
+    global _SQLITE_INIT_DONE
     pg_url = normalized_database_url()
     if pg_url:
         try:
@@ -484,6 +486,11 @@ def get_connection(raise_on_error: bool = False):
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA foreign_keys=ON")
+        if not _SQLITE_INIT_DONE:
+            cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='configuracion_sistema'")
+            if not cur.fetchone():
+                init_db()
+            _SQLITE_INIT_DONE = True
         return conn
     except sqlite3.Error as exc:
         if raise_on_error:

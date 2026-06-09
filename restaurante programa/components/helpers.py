@@ -125,10 +125,13 @@ def execute(sql: str, params: tuple = ()) -> None:
 
 @st.cache_data(ttl=120, show_spinner=False)
 def config_values() -> dict[str, str]:
-    return {
-        str(row["clave"]): str(row["valor"])
-        for row in rows("SELECT clave, valor FROM configuracion_sistema")
-    }
+    try:
+        return {
+            str(row["clave"]): str(row["valor"])
+            for row in rows("SELECT clave, valor FROM configuracion_sistema")
+        }
+    except Exception:
+        return {}
 
 
 def get_config(clave: str, default: str = "") -> str:
