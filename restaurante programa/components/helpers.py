@@ -123,7 +123,7 @@ def execute(sql: str, params: tuple = ()) -> None:
         conn.close()
 
 
-@st.cache_data(ttl=10, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def config_values() -> dict[str, str]:
     return {
         str(row["clave"]): str(row["valor"])
@@ -1254,7 +1254,7 @@ def excel_bytes(sheets: dict[str, pd.DataFrame]) -> bytes | None:
         return None
 
 
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def system_counts() -> dict[str, int]:
     data = rows("""
         SELECT 'usuarios' AS tabla, COUNT(*) AS total FROM usuarios

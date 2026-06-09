@@ -226,27 +226,7 @@ except Exception as _exc_clone:
 bootstrap_database()
 register_app_boot_once()
 
-# ── Banner de diagnostico para admin ───────────────────────────────────
-try:
-    _user_actual = st.session_state.get("usuario", {})
-    if _user_actual.get("rol") in ("administrador", "dueno"):
-        _total_pg = 0
-        if using_postgres():
-            _rows_pg = rows("SELECT COUNT(*) AS cnt FROM productos_menu")
-            _total_pg = _rows_pg[0]["cnt"] if _rows_pg else 0
-        _total_sqlite = 0
-        try:
-            _c = sqlite3.connect(str(DB_PATH))
-            _total_sqlite = _c.execute("SELECT COUNT(*) FROM productos_menu").fetchone()[0]
-            _c.close()
-        except Exception:
-            pass
-        if _total_pg > 0 and _total_sqlite > 0 and _total_pg != _total_sqlite:
-            st.warning(f"Desfase de datos: {_total_pg} platos en Supabase vs {_total_sqlite} en SQLite local")
-        elif _total_sqlite == 0 and _total_pg == 0:
-            st.error("No hay platos cargados en ninguna base de datos. Ejecuta 'python cargar_menu_patron.py --execute'")
-except Exception:
-    pass
+
 
 
 def keep_sidebar_open() -> None:
@@ -339,7 +319,10 @@ def rows(sql: str, params: tuple = ()) -> list[dict]:
     try:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def one(sql: str, params: tuple = ()) -> dict | None:
@@ -348,7 +331,10 @@ def one(sql: str, params: tuple = ()) -> dict | None:
         row = conn.execute(sql, params).fetchone()
         return dict(row) if row else None
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def execute(sql: str, params: tuple = ()) -> None:
@@ -366,7 +352,7 @@ def execute(sql: str, params: tuple = ()) -> None:
             pass
 
 
-@st.cache_data(ttl=10, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def config_values() -> dict[str, str]:
     return {
         str(row["clave"]): str(row["valor"])
@@ -599,7 +585,7 @@ def service_amount(subtotal: float) -> float:
     return round(float(subtotal) * service_percentage() / 100)
 
 
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def init_session() -> None:
     # Mobile detection via query param (set by JS on first load)
     mobile = st.query_params.get("mobile")
@@ -2528,11 +2514,12 @@ def render_waiter_summary(mesas: list[dict], listos: list[dict], operativo: dict
 
 def page_mozo() -> None:
     # ── Notificacion push: pedidos listos desde cocina ────────────────
-    _listos_hoy = rows("""
-        SELECT COUNT(*) AS cnt FROM pedidos_cabecera
-        WHERE estado_comanda = 'listo'
-          AND fecha_hora >= datetime('now', '-2 hours')
-    """)
+    _sql_listos = "SELECT COUNT(*) AS cnt FROM pedidos_cabecera WHERE estado_comanda = 'listo'"
+    if using_postgres():
+        _sql_listos += " AND fecha_hora >= now() - interval '2 hours'"
+    else:
+        _sql_listos += " AND fecha_hora >= datetime('now', '-2 hours')"
+    _listos_hoy = rows(_sql_listos)
     _cant_listos = _listos_hoy[0]["cnt"] if _listos_hoy else 0
     _prev = st.session_state.get("mozo_listos_prev", -1)
     if _prev != -1 and _cant_listos > _prev:
