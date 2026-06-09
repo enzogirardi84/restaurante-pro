@@ -312,6 +312,9 @@ def rows(sql: str, params: tuple = ()) -> list[dict]:
     conn = get_connection()
     try:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
+    except Exception as _ex:
+        st.error(f"Error BD: {type(_ex).__name__}: {_ex}")
+        return []
     finally:
         try:
             conn.close()
