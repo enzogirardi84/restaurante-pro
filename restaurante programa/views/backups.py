@@ -14,6 +14,21 @@ from components.css import title
 from components.helpers import BACKUP_DIR, registrar_auditoria, rows
 
 
+def hacer_backup_ahora() -> str | None:
+    """Crea un backup .db con timestamp y retorna el nombre, o None si falla."""
+    import shutil
+    BACKUP_DIR.mkdir(exist_ok=True)
+    if using_postgres():
+        return None
+    try:
+        name = f"restaurante_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+        shutil.copy2(DB_PATH, BACKUP_DIR / name)
+        registrar_auditoria("backups", "backup_auto_cierre", name)
+        return name
+    except Exception:
+        return None
+
+
 def page_backups() -> None:
     title("Backups", "Crear, descargar y restaurar copias de la base de datos.")
     if using_postgres():
@@ -37,14 +52,13 @@ def page_backups() -> None:
             except Exception as exc:
                 st.warning(f"No se pudo exportar {table}: {type(exc).__name__}")
         return
-    BACKUP_DIR.mkdir(exist_ok=True)
+        BACKUP_DIR.mkdir(exist_ok=True)
     if st.button("Crear backup ahora", type="primary"):
-        name = f"restaurante_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-        target = BACKUP_DIR / name
-        import shutil
-        shutil.copy2(DB_PATH, target)
-        registrar_auditoria("backups", "backup_creado", name)
-        st.success(f"Backup creado: {name}")
+        nombre = hacer_backup_ahora()
+        if nombre:
+            st.success(f"Backup creado: {nombre}")
+        else:
+            st.error("No se pudo crear el backup.")
 
     for file in sorted(BACKUP_DIR.glob("*.db"), reverse=True):
         cols = st.columns([3, 1])

@@ -57,7 +57,7 @@ from components.proveedores_utils import page_gestion_proveedores
 from components.promociones_utils import page_promociones
 from components.turnos_utils import page_gestion_turnos, widget_check_in_out
 from components.facturacion_electronica import page_facturacion_electronica
-from views.backups import page_backups
+from views.backups import page_backups, hacer_backup_ahora
 from views.mesas import page_mesas
 from views.sistema import page_sistema
 from utils.pdf_generator import data_table, date_fmt, generate_pdf, money as pdf_money
@@ -1914,6 +1914,10 @@ def page_caja() -> None:
             if requiere_observacion:
                 st.warning("Hay diferencia de caja. Escribi una observacion antes de cerrar.")
             if st.button("Cerrar caja", use_container_width=True, disabled=requiere_observacion and not observacion_cierre.strip()):
+                # Backup automatico antes de cerrar
+                _bak = hacer_backup_ahora()
+                if _bak:
+                    st.toast(f"Backup pre-cierre: {_bak}")
                 execute("""
                     UPDATE cajas_diarias
                        SET fecha_cierre = datetime('now','localtime'),
@@ -2530,6 +2534,18 @@ def render_waiter_summary(mesas: list[dict], listos: list[dict], operativo: dict
 
 
 def page_mozo() -> None:
+    # ── Notificacion push: pedidos listos desde cocina ────────────────
+    _listos_hoy = rows("""
+        SELECT COUNT(*) AS cnt FROM pedidos_cabecera
+        WHERE estado_comanda = 'listo'
+          AND fecha_hora >= datetime('now', '-2 hours')
+    """)
+    _cant_listos = _listos_hoy[0]["cnt"] if _listos_hoy else 0
+    _prev = st.session_state.get("mozo_listos_prev", -1)
+    if _prev != -1 and _cant_listos > _prev:
+        st.toast(f"🍽  {_cant_listos - _prev} pedido(s) listo(s) para servir!", icon="🔥")
+    st.session_state.mozo_listos_prev = _cant_listos
+
     mozos = get_mozos()
     operativo = mozo_operativo()
     if not mozos:
@@ -2636,10 +2652,15 @@ def page_mozo() -> None:
     left, right = st.columns([1.62, 0.88], gap="large")
     menu = get_menu()
     with left:
-        filtro = st.text_input("Buscar producto", placeholder="Nombre del plato o bebida").strip().lower()
-        categorias = [("cocina", "Cocina"), ("bebidas", "Bebidas"), ("postres", "Postres")]
-        tabs = st.tabs([label for _, label in categorias])
-        for tab, (cat, _) in zip(tabs, categorias):
+        from components.categorias import CATEGORIAS_TOTAL
+        filtro = st.text_input("Buscar producto", placeholder="Escribi nombre del plato...").strip().lower()
+        if filtro:
+            _resultados = [p for p in menu if filtro in p["nombre"].lower()]
+            if len(_resultados) > 0:
+                st.caption(f"{len(_resultados)} resultado(s) para '{filtro}'")
+        _cats_ui = ["Entradas", "Pastas", "Carnes", "Pescados", "Comidas Criollas", "Postres", "cocina", "bebidas"]
+        tabs = st.tabs(_cats_ui)
+        for tab, cat in zip(tabs, _cats_ui):
             with tab:
                 productos = [p for p in menu if p["categoria"] == cat and (not filtro or filtro in p["nombre"].lower())]
                 if not productos:
