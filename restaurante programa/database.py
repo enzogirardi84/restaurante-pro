@@ -212,6 +212,9 @@ def _local_execute(sql: str, params: tuple = ()) -> dict:
 
 
 def using_postgres() -> bool:
+    global _PG_FALLBACK
+    if _PG_FALLBACK:
+        return False
     return bool(normalized_database_url())
 
 

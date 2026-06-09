@@ -2530,14 +2530,12 @@ def render_waiter_summary(mesas: list[dict], listos: list[dict], operativo: dict
 
 def page_mozo() -> None:
     # ── Notificacion push: pedidos listos desde cocina ────────────────
-    _sql_listos = "SELECT COUNT(*) AS cnt FROM pedidos_cabecera WHERE estado_comanda = 'listo'"
-    if using_postgres():
-        _sql_listos += " AND fecha_hora >= now() - interval '2 hours'"
-        _listos_hoy = rows(_sql_listos)
-    else:
-        from datetime import datetime as _dt, timedelta as _td
-        _corte = (_dt.now() - _td(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
-        _listos_hoy = rows(_sql_listos + " AND fecha_hora >= ?", (_corte,))
+    from datetime import datetime as _dt, timedelta as _td
+    _corte = (_dt.now() - _td(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+    _listos_hoy = rows(
+        "SELECT COUNT(*) AS cnt FROM pedidos_cabecera WHERE estado_comanda = 'listo' AND fecha_hora >= ?",
+        (_corte,),
+    )
     _cant_listos = _listos_hoy[0]["cnt"] if _listos_hoy else 0
     _prev = st.session_state.get("mozo_listos_prev", -1)
     if _prev != -1 and _cant_listos > _prev:
