@@ -1,2 +1,4 @@
 libpq-dev
 build-essential
+gcc
+python3-dev
