@@ -43,6 +43,7 @@ from database import (
     procesar_cola_sincronizacion,
     registrar_auditoria,
     using_postgres,
+    rows as db_rows,
 )
 from cloud_config import app_name, cloud_status, database_url_warnings, default_service_percentage, masked_status_table, normalized_database_url
 from components.css import inject_styles, offline_banner, terminal_mode_styles, title, stat_card, auto_refresh
@@ -220,9 +221,39 @@ def _asegurar_sqlite_local():
     except Exception as exc:
         _w.warn(f"No se pudo restaurar SQLite: {exc}")
 
-_asegurar_sqlite_local()
+# ── Parche de depuracion visual ────────────────────────────────────────
+try:
+    _asegurar_sqlite_local()
+except Exception as _exc_clone:
+    user = st.session_state.get("usuario", {})
+    if user.get("rol") in ("administrador", "dueno"):
+        st.error("Error al restaurar SQLite desde Supabase")
+        st.exception(_exc_clone)
+
 bootstrap_database()
 register_app_boot_once()
+
+# ── Banner de diagnostico para admin ───────────────────────────────────
+try:
+    _user_actual = st.session_state.get("usuario", {})
+    if _user_actual.get("rol") in ("administrador", "dueno"):
+        _total_pg = 0
+        if using_postgres():
+            _rows_pg = db_rows("SELECT COUNT(*) AS cnt FROM productos_menu")
+            _total_pg = _rows_pg[0]["cnt"] if _rows_pg else 0
+        _total_sqlite = 0
+        try:
+            _c = sqlite3.connect(str(DB_PATH))
+            _total_sqlite = _c.execute("SELECT COUNT(*) FROM productos_menu").fetchone()[0]
+            _c.close()
+        except Exception:
+            pass
+        if _total_pg > 0 and _total_sqlite > 0 and _total_pg != _total_sqlite:
+            st.warning(f"Desfase de datos: {_total_pg} platos en Supabase vs {_total_sqlite} en SQLite local")
+        elif _total_sqlite == 0 and _total_pg == 0:
+            st.error("No hay platos cargados en ninguna base de datos. Ejecuta 'python cargar_menu_patron.py --execute'")
+except Exception:
+    pass
 
 
 def keep_sidebar_open() -> None:

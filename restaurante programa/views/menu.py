@@ -119,6 +119,11 @@ def _insertar_producto(nombre: str, precio: float, categoria: str, activo: bool)
 
 
 def _editor_productos():
+    col_refresh, _ = st.columns([1, 5])
+    with col_refresh:
+        if st.button("Sincronizar / Refrescar tabla", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
     df = pd.DataFrame(get_menu(active_only=False))
     if df.empty:
         st.info("No hay productos cargados.")
