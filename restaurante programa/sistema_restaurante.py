@@ -156,6 +156,7 @@ def register_app_boot_once() -> str:
 def _asegurar_sqlite_local():
     """Si el .db local esta vacio o no existe, lo clona desde Supabase
     usando la API REST (HTTPS, funciona via Cloudflare)."""
+    import sqlite3
     _supa_url = os.environ.get("SUPABASE_URL", "")
     _supa_key = os.environ.get("SUPABASE_ANON_KEY", "")
     if not _supa_url or not _supa_key:
@@ -2532,11 +2533,15 @@ def page_mozo() -> None:
     # ── Notificacion push: pedidos listos desde cocina ────────────────
     from datetime import datetime as _dt, timedelta as _td
     _corte = (_dt.now() - _td(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
-    _listos_hoy = rows(
-        "SELECT COUNT(*) AS cnt FROM pedidos_cabecera WHERE estado_comanda = 'listo' AND fecha_hora >= ?",
-        (_corte,),
-    )
-    _cant_listos = _listos_hoy[0]["cnt"] if _listos_hoy else 0
+    try:
+        _listos_hoy = rows(
+            "SELECT COUNT(*) AS cnt FROM pedidos_cabecera WHERE estado_comanda = 'listo' AND fecha_hora >= ?",
+            (_corte,),
+        )
+        _cant_listos = _listos_hoy[0]["cnt"] if _listos_hoy else 0
+    except Exception:
+        _cant_listos = 0
+        st.sidebar.warning("⚠️  Sin estadísticas del día por error temporal.")
     _prev = st.session_state.get("mozo_listos_prev", -1)
     if _prev != -1 and _cant_listos > _prev:
         st.toast(f"🍽  {_cant_listos - _prev} pedido(s) listo(s) para servir!", icon="🔥")
