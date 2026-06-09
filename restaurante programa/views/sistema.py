@@ -225,6 +225,20 @@ def _tab_sincronizacion():
             st.caption("Configura DATABASE_URL en Streamlit Secrets para activar la sincronizacion.")
 
     st.divider()
+    if not postgres_mode:
+        _col1, _col2 = st.columns([1, 3])
+        with _col1:
+            if st.button("Subir todo a Supabase", type="secondary", use_container_width=True):
+                _ok, _msg = _subir_todo_supabase()
+                if _ok:
+                    st.toast(_msg, icon="✅")
+                else:
+                    st.error(_msg)
+                st.rerun()
+        with _col2:
+            st.caption("Vuelca todas las tablas locales a Supabase via REST API (requiere SERVICE_ROLE_KEY en secrets)")
+
+    st.divider()
     st.subheader("Logs de auditoria operativa")
     st.caption("Acciones criticas registradas: cambios de precio, anulaciones, aperturas de caja, etc.")
 
@@ -294,7 +308,71 @@ def _estadisticas_agente() -> dict:
     reporte_path = Path(__file__).parent.parent.parent / "data" / "reporte_agente_qa.log"
     stats = {"archivos_escaneados": 0, "corregidos": 0, "saludables": 0, "errores_log": 0}
     if not reporte_path.exists():
-        return stats
+    return stats
+
+
+def _subir_todo_supabase():
+    """Sube todas las tablas locales a Supabase via REST API."""
+    import sqlite3, json, urllib.request, urllib.error, time, os
+
+    _db = Path(__file__).parent.parent / "data" / "restaurante.db"
+    if not _db.exists():
+        return False, f"No existe la base local: {_db}"
+
+    _supa_url = (st.secrets.get("SUPABASE_URL", "") or
+                 os.environ.get("SUPABASE_URL", ""))
+    _svc_key = (st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "") or
+                os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""))
+
+    if not _supa_url or not _svc_key:
+        return False, "Falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en secrets/env"
+
+    _base = _supa_url.rstrip("/") + "/rest/v1"
+    _headers = {
+        "apikey": _svc_key, "Authorization": f"Bearer {_svc_key}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates",
+    }
+    _tablas = [
+        "usuarios", "productos_menu", "mesas", "configuracion_sistema",
+        "categorias", "insumos", "recetas_escandallo", "pedidos_cabecera",
+        "pedido_detalle", "turnos_personal", "cajas_diarias",
+        "movimientos_caja", "proveedores", "movimientos_stock",
+        "depositos", "stock_deposito", "promociones",
+    ]
+    _conn = sqlite3.connect(str(_db))
+    _conn.row_factory = sqlite3.Row
+    _total, _errores = 0, 0
+
+    for _t in _tablas:
+        try:
+            _filas = [dict(r) for r in _conn.execute(f'SELECT * FROM "{_t}"').fetchall()]
+        except Exception as e:
+            st.caption(f"  ⏭  {_t}: {e}")
+            continue
+        if not _filas:
+            continue
+        _body = json.dumps(_filas).encode("utf-8")
+        try:
+            with urllib.request.urlopen(
+                urllib.request.Request(f"{_base}/{_t}", data=_body, headers=_headers, method="POST"),
+                timeout=30,
+            ) as _resp:
+                pass
+            _total += len(_filas)
+        except urllib.error.HTTPError as e:
+            _errores += 1
+            st.caption(f"  ❌ {_t} HTTP {e.code}")
+        except Exception as e:
+            _errores += 1
+            st.caption(f"  ❌ {_t}: {e}")
+        time.sleep(0.3)
+
+    _conn.close()
+    _msg = f"Subidas {_total} filas a Supabase"
+    if _errores:
+        _msg += f" ({_errores} errores)"
+    return _errores == 0, _msg
     for linea in reporte_path.read_text(encoding="utf-8").split("\n"):
         if "Archivos Python encontrados:" in linea:
             try:
