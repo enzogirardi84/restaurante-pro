@@ -227,9 +227,6 @@ col_m2.metric("En preparacion", len(grupos["en_cocina"]))
 col_m3.metric("Listos", len(grupos["listo"]))
 col_m4.metric("Total visible", total_pedidos)
 
-if st.button("Actualizar pantalla"):
-    st.rerun()
-
 st.divider()
 
 col1, col2, col3 = st.columns(3, gap="medium")

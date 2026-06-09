@@ -53,6 +53,31 @@ def inject_styles() -> None:
                 min-height: 0 !important;
                 display: none !important;
             }
+            /* Ocultar boton nativo de colapso del sidebar */
+            button[kind="headerNoPadding"] { display: none !important; }
+            button[data-testid="baseButton-headerNoPadding"] { display: none !important; }
+            div[data-testid="stSidebarCollapsedControl"] { display: none !important; }
+            section[data-testid="stSidebar"] > div:first-child > div:first-child > button { display: none !important; }
+            /* Boton premium marron corporativo */
+            button[kind="primary"].premium-btn, button[data-premium="true"] {
+                background: #624a3e !important;
+                color: #FFFFFF !important;
+                font-size: 1.1rem !important;
+                font-weight: 700 !important;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
+                border: none !important;
+                border-radius: 8px !important;
+                padding: 0.6rem 1.2rem !important;
+                transition: all 0.15s ease !important;
+            }
+            button[kind="primary"].premium-btn:hover, button[data-premium="true"]:hover {
+                background: #73584a !important;
+                box-shadow: 0 6px 12px rgba(0,0,0,0.15) !important;
+            }
+            button[kind="primary"].premium-btn:active, button[data-premium="true"]:active {
+                transform: scale(0.98) !important;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+            }
             html, body, .stApp {
                 background: var(--bg);
                 color: var(--ink);
