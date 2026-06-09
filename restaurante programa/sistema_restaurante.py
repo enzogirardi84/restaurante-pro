@@ -154,11 +154,11 @@ def register_app_boot_once() -> str:
 
 # ── Bloque anti-contenedor efimero ─────────────────────────────────────
 def _asegurar_sqlite_local():
-    """Si el .db local esta vacio o no existe, lo clona desde Supabase.
-    Resuelve la perdida total de datos en Streamlit Cloud cuando el
-    contenedor se reinicia tras inactividad o commit."""
-    pg_url = normalized_database_url()
-    if not pg_url:
+    """Si el .db local esta vacio o no existe, lo clona desde Supabase
+    usando la API REST (HTTPS, funciona via Cloudflare)."""
+    _supa_url = os.environ.get("SUPABASE_URL", "")
+    _supa_key = os.environ.get("SUPABASE_ANON_KEY", "")
+    if not _supa_url or not _supa_key:
         return
     if not DB_PATH.exists() or DB_PATH.stat().st_size < 4096:
         necesita = True
@@ -172,51 +172,56 @@ def _asegurar_sqlite_local():
             necesita = True
     if not necesita:
         return
-    import warnings as _w
-    _w.warn("SQLite local vacio. Restaurando desde Supabase...")
+    import warnings as _w, urllib.request as _req, json as _json
+    _w.warn("SQLite local vacio. Restaurando desde Supabase via API REST...")
+    _TABLAS = ["usuarios", "productos_menu", "mesas", "configuracion_sistema",
+               "categorias", "insumos", "recetas_escandallo", "pedidos_cabecera",
+               "pedido_detalle", "turnos_personal", "cajas_diarias",
+               "movimientos_caja", "proveedores", "movimientos_stock",
+               "depositos", "stock_deposito", "promociones",
+               "sistema_estado", "accesos_sistema", "cola_sincronizacion"]
     try:
-        import psycopg2
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        pg_conn = psycopg2.connect(pg_url)
-        pg_cur = pg_conn.cursor()
-        pg_cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name")
-        tablas = [r[0] for r in pg_cur.fetchall()]
         sl_conn = sqlite3.connect(str(DB_PATH))
         sl_conn.execute("PRAGMA foreign_keys=OFF")
-        for tabla in tablas:
-            if tabla.startswith("_"):
-                continue
+        _base = _supa_url.rstrip("/") + "/rest/v1"
+        _headers = {"apikey": _supa_key, "Authorization": f"Bearer {_supa_key}",
+                    "Accept": "application/json"}
+        _count = 0
+        for _tabla in _TABLAS:
             try:
-                pg_cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s ORDER BY ordinal_position", (tabla,))
-                cols = [r[0] for r in pg_cur.fetchall()]
-                if not cols:
+                _r = _req.Request(f"{_base}/{_tabla}?select=*&limit=1000",
+                                  headers=_headers, method="GET")
+                with _req.urlopen(_r, timeout=10) as _resp:
+                    _filas = _json.loads(_resp.read().decode())
+                if not _filas:
                     continue
-                pg_cur.execute(f'SELECT * FROM "{tabla}"')
-                filas = pg_cur.fetchall()
-                if not filas:
-                    continue
-                sl_conn.execute(f'DROP TABLE IF EXISTS "{tabla}"')
-                sl_conn.execute(f'CREATE TABLE "{tabla}" ({", ".join(f'"{c}"' for c in cols)})')
-                ph = ", ".join("?" for _ in cols)
-                cn = ", ".join(f'"{c}"' for c in cols)
-                for fila in filas:
+                _cols = list(_filas[0].keys())
+                sl_conn.execute(f'DROP TABLE IF EXISTS "{_tabla}"')
+                sl_conn.execute(f'CREATE TABLE IF NOT EXISTS "{_tabla}" ({", ".join(f'"{c}"' for c in _cols)})')
+                _ph = ", ".join("?" for _ in _cols)
+                _cn = ", ".join(f'"{c}"' for c in _cols)
+                for _f in _filas:
                     try:
-                        sl_conn.execute(f'INSERT INTO "{tabla}" ({cn}) VALUES ({ph})', fila)
+                        sl_conn.execute(f'INSERT INTO "{_tabla}" ({_cn}) VALUES ({_ph})',
+                                        tuple(_f.get(c, None) for c in _cols))
                     except Exception:
                         pass
                 sl_conn.commit()
+                _count += 1
             except Exception:
                 continue
         sl_conn.execute("PRAGMA foreign_keys=ON")
         sl_conn.close()
-        pg_conn.close()
-        _w.warn(f"SQLite restaurado desde Supabase ({len(tablas)} tablas).")
+        _w.warn(f"SQLite restaurado desde Supabase REST API ({_count} tablas).")
     except Exception as exc:
         _w.warn(f"No se pudo restaurar SQLite: {exc}")
 
 # ── Arranque de bases de datos ─────────────────────────────────────────
-# _asegurar_sqlite_local se movio a database.py: se ejecuta dentro de init_db()
-# para evitar pantalla en blanco por restore bloqueante a nivel modulo.
+try:
+    _asegurar_sqlite_local()
+except Exception:
+    pass
 bootstrap_database()
 register_app_boot_once()
 
