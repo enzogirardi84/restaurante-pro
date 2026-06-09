@@ -14,6 +14,7 @@ from cloud_config import normalized_database_url, normalized_database_url_direct
 
 DB_DIR = Path(__file__).parent / "data"
 DB_PATH = DB_DIR / "restaurante.db"
+DB_DIR.mkdir(parents=True, exist_ok=True)
 SUPABASE_SCHEMA_PATH = Path(__file__).parent / "supabase" / "schema.sql"
 ADMIN_PASSWORD_HASH = "pbkdf2_sha256$260000$restaurante_pro_admin$3bf3e011536522835b606cc8b6d62689977bae8961ac46f703a8519b5cbb7d71"
 ANAHI_PASSWORD_HASH = "pbkdf2_sha256$260000$restaurante_pro_anahigilardi$4dddc291f7d7d9355d779938477655ad0e21179cc056648b7b1ecf8e68121815"
@@ -653,6 +654,7 @@ def init_db(schema_file: str | None = None) -> None:
 def _init_sqlite_local(schema_path: str) -> None:
     """Inicializa SQLite local con el schema completo."""
     try:
+        DB_DIR.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
