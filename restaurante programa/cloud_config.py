@@ -58,7 +58,23 @@ def _streamlit_secret(name: str) -> str:
         value = st.secrets.get(name, "")
         if value is None:
             return ""
-        return str(value).strip()
+        if isinstance(value, str):
+            return str(value).strip()
+
+        # Si el secreto esta anidado bajo [supabase]
+        supabase_section = st.secrets.get("supabase", {})
+        if isinstance(supabase_section, dict):
+            # Mapear nombres planos a claves anidadas
+            key_map = {
+                "SUPABASE_URL": "url",
+                "SUPABASE_ANON_KEY": "anon_key",
+                "SUPABASE_SERVICE_ROLE_KEY": "service_role_key",
+            }
+            nested_key = key_map.get(name)
+            if nested_key:
+                val = supabase_section.get(nested_key, "")
+                return str(val).strip() if val else ""
+        return ""
     except Exception:
         return ""
 

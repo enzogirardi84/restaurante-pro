@@ -306,8 +306,8 @@ def _subir_todo_supabase():
     _db = Path(__file__).parent.parent / "data" / "restaurante.db"
     if not _db.exists():
         return False, f"No existe: {_db}"
-    _supa_url = st.secrets.get("SUPABASE_URL", "") or os.environ.get("SUPABASE_URL", "")
-    _svc_key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    _supa_url = st.secrets.get("SUPABASE_URL", "") or st.secrets.get("supabase", {}).get("url", "") or os.environ.get("SUPABASE_URL", "")
+    _svc_key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "") or st.secrets.get("supabase", {}).get("service_role_key", "") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
     if not _supa_url or not _svc_key:
         return False, "Faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY"
     _base = _supa_url.rstrip("/") + "/rest/v1"
