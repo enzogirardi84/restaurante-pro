@@ -6,7 +6,6 @@ para conectar servicios externos como Supabase y Streamlit Community Cloud.
 """
 from __future__ import annotations
 
-import config
 import os
 from pathlib import Path
 from dotenv import load_dotenv

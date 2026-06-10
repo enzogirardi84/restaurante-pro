@@ -460,6 +460,24 @@ def sidebar() -> None:
 
 
 def get_menu(active_only: bool = True) -> list[dict]:
+    try:
+        from supabase import create_client
+        from cloud_config import supabase_url, get_secret
+        url = supabase_url()
+        key = get_secret("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_ANON_KEY")
+        if url and key:
+            sb = create_client(url, key)
+            query = sb.table("productos_menu").select(
+                "id_producto, nombre, precio_venta, categoria, activo, precio_original, precio_final, descuento_aplicado"
+            )
+            if active_only:
+                query = query.eq("activo", True)
+            resp = query.order("categoria").order("nombre").execute()
+            if resp.data:
+                return resp.data
+    except Exception:
+        pass
+
     where = "WHERE activo = 1" if active_only else ""
     productos = rows(f"""
         SELECT id_producto, nombre, precio_venta, categoria, activo
