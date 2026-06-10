@@ -1561,11 +1561,11 @@ def page_cocina() -> None:
     m3.metric("Listos",          len(listos))
     m4.metric("Platos activos",  sum(int(i["cantidad"]) for p in pendientes + en_cocina for i in p["items"]))
 
-    # ── Chef view + controles ─────────────────────────────────────
+  # ── Chef view + controles ─────────────────────────────────────
     top_left, top_right = st.columns([2.2, 1])
     with top_left:
         resumen = resumen_chef()
-        st.markdown("<div class='kds-summary'><div class='kds-summary-title'>Chef view - ” total pendiente</div>", unsafe_allow_html=True)
+        st.markdown("<div class='kds-summary'><div class='kds-summary-title'>Chef view — total pendiente</div>", unsafe_allow_html=True)
         if resumen:
             for item in resumen:
                 st.markdown(
@@ -1575,7 +1575,6 @@ def page_cocina() -> None:
         else:
             st.markdown("<span class='muted'>Sin platos pendientes.</span>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
-
     with top_right:
         btn_c1, btn_c2 = st.columns(2)
         with btn_c1:
