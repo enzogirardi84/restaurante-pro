@@ -3533,40 +3533,74 @@ def _render_export_section(desde: str, hasta: str,
 
 
 def _pdf_reporte_analisis(desde, hasta, ventas, productos, mozos, medios, total, pedidos, resumen):
+    from utils.pdf_generator import Paragraph as _P, STYLE_BODY as _SB
     ticket_prom = total / pedidos if pedidos else 0
+    total_productos = int(productos["cantidad"].sum()) if not productos.empty else 0
+    total_mozos = len(mozos) if not mozos.empty else 0
+    total_medios = len(medios) if not medios.empty else 0
+    dias_con_ventas = len(ventas)
+    max_dia = ventas.loc[ventas["subtotal"].idxmax()] if not ventas.empty else None
     sections = []
 
+    # 1. Resumen ejecutivo
+    resumen_lines = []
+    if max_dia is not None:
+        resumen_lines.append(f"Mejor dia: {max_dia['dia']} con {money(max_dia['subtotal'])} en ventas.")
     if not ventas.empty:
-        rows_tbl = [[str(r["dia"]), money(r["subtotal"]), money(r["total_cobrado"])]
+        prom_diario = total / dias_con_ventas if dias_con_ventas else 0
+        resumen_lines.append(f"Promedio diario: {money(prom_diario)} ({dias_con_ventas} dias con ventas).")
+    if not productos.empty:
+        resumen_lines.append(f"Total productos vendidos: {total_productos} unidades.")
+    if not mozos.empty:
+        resumen_lines.append(f"Mozos activos en el periodo: {total_mozos}.")
+    total_porc = float(medios["total"].sum()) if not medios.empty else 0
+    if not medios.empty and total_porc:
+        top_medio = medios.iloc[0]
+        resumen_lines.append(
+            f"Principal medio de pago: {top_medio['medio_pago']} "
+            f"({float(top_medio['total']) / total_porc * 100:.0f}% de los cobros)."
+        )
+    sections.append(("Resumen del periodo", [_P(l, _SB) for l in resumen_lines]))
+
+    # 2. Ventas diarias
+    if not ventas.empty:
+        rows_tbl = [[str(r["dia"]), pdf_money(r["subtotal"]), pdf_money(r["total_cobrado"])]
                      for _, r in ventas.iterrows()]
         sections.append(("Ventas diarias",
                          data_table(["Fecha", "Subtotal", "Total cobrado"], rows_tbl, right_align_cols={1, 2})))
 
+    # 3. Top productos
     if not productos.empty:
-        rows_tbl = [[r["producto"], str(int(r["cantidad"])), money(r["ingreso"])]
+        rows_tbl = [[r["producto"], str(int(r["cantidad"])), pdf_money(r["ingreso"])]
                      for _, r in productos.iterrows()]
         sections.append(("Top 10 productos",
                          data_table(["Producto", "Cantidad", "Ingreso"], rows_tbl, right_align_cols={1, 2})))
 
+    # 4. Ventas por mozo
     if not mozos.empty:
-        rows_tbl = [[r["mozo"], str(r["pedidos"]), money(r["ventas"])]
+        rows_tbl = [[r["mozo"], str(r["pedidos"]), pdf_money(r["ventas"])]
                      for _, r in mozos.iterrows()]
         sections.append(("Ventas por mozo",
                          data_table(["Mozo", "Pedidos", "Ventas"], rows_tbl, right_align_cols={1, 2})))
 
+    # 5. Medios de pago
     if not medios.empty:
-        rows_tbl = [[r["medio_pago"], str(r["pagos"]), money(r["total"])]
-                     for _, r in medios.iterrows()]
+        total_medios_pagos = float(medios["total"].sum())
+        rows_tbl = []
+        for _, r in medios.iterrows():
+            pct = float(r["total"]) / total_medios_pagos * 100 if total_medios_pagos else 0
+            rows_tbl.append([r["medio_pago"], str(r["pagos"]), pdf_money(r["total"]), f"{pct:.0f}%"])
         sections.append(("Medios de pago",
-                         data_table(["Medio", "Pagos", "Total"], rows_tbl, right_align_cols={1, 2})))
+                         data_table(["Medio", "Pagos", "Total", "%"], rows_tbl, right_align_cols={1, 2, 3})))
 
-    for key in ["stock", "movimientos_stock", "proveedores", "caja"]:
+    # 6. Datos operativos anexos
+    for key, label in [("stock", "Stock actual"), ("movimientos_stock", "Movimientos de stock"),
+                       ("proveedores", "Proveedores"), ("caja", "Caja diaria")]:
         df = resumen.get(key)
         if df is not None and not df.empty:
             rows_tbl = [[str(v) for v in r] for r in df.head(50).to_numpy()]
             headers = [str(c) for c in df.columns]
-            sections.append((key.replace("_", " ").title(),
-                             data_table(headers, rows_tbl, right_align_cols=set())))
+            sections.append((label, data_table(headers, rows_tbl, right_align_cols=set())))
 
     usuario = st.session_state.get("usuario", {})
     nombre = f"{usuario.get('nombre', '')} {usuario.get('apellido', '')}".strip() or "sistema"
@@ -3575,10 +3609,11 @@ def _pdf_reporte_analisis(desde, hasta, ventas, productos, mozos, medios, total,
         title="Reporte de analisis",
         subtitle=f"Periodo: {desde} a {hasta}",
         kpis=[
-            ("Ventas totales", money(total)),
+            ("Ventas totales", pdf_money(total)),
             ("Pedidos", str(int(pedidos))),
-            ("Ticket promedio", money(ticket_prom)),
-            ("Dias con ventas", str(len(ventas))),
+            ("Ticket promedio", pdf_money(ticket_prom)),
+            ("Productos vend.", str(total_productos)),
+            ("Dias con ventas", str(dias_con_ventas)),
         ],
         sections=sections,
         usuario=nombre,
