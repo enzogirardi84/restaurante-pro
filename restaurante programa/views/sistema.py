@@ -217,7 +217,7 @@ def _tab_sincronizacion():
             ok, msg = _subir_todo_supabase()
             st.toast(msg, icon="✅" if ok else "❌")
             st.rerun()
-        st.caption("Requiere SERVICE_ROLE_KEY en secrets")
+        st.caption("Configura SERVICE_ROLE_KEY en secrets (bajo [supabase]) para activar la subida")
 
 
 # ── Pestana 4: Auditoria ──────────────────────────────────────────────────
@@ -306,10 +306,12 @@ def _subir_todo_supabase():
     _db = Path(__file__).parent.parent / "data" / "restaurante.db"
     if not _db.exists():
         return False, f"No existe: {_db}"
-    _supa_url = st.secrets.get("SUPABASE_URL", "") or st.secrets.get("supabase", {}).get("url", "") or os.environ.get("SUPABASE_URL", "")
-    _svc_key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "") or st.secrets.get("supabase", {}).get("service_role_key", "") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    # Intentar leer desde [supabase] y desde flat
+    _supa_section = st.secrets.get("supabase", {}) or {}
+    _supa_url = _supa_section.get("url", "") or st.secrets.get("SUPABASE_URL", "") or os.environ.get("SUPABASE_URL", "")
+    _svc_key = _supa_section.get("service_role_key", "") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
     if not _supa_url or not _svc_key:
-        return False, "Faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY"
+        return False, f"Faltan credenciales. URL={'OK' if _supa_url else 'NO'}, KEY={'OK' if _svc_key else 'NO'}"
     _base = _supa_url.rstrip("/") + "/rest/v1"
     _headers = {"apikey": _svc_key, "Authorization": f"Bearer {_svc_key}",
                 "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates"}
