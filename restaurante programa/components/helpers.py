@@ -471,7 +471,7 @@ def get_menu(active_only: bool = True) -> list[dict]:
                 "id_producto, nombre, precio_venta, categoria, activo, precio_original, precio_final, descuento_aplicado"
             )
             if active_only:
-                query = query.eq("activo", True)
+                query = query.eq("activo", 1)
             resp = query.order("categoria").order("nombre").execute()
             if resp.data:
                 return resp.data

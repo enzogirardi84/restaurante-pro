@@ -48,7 +48,7 @@ def get_menu(active_only: bool = True) -> list[dict]:
                 "id_producto, nombre, precio_venta, categoria, activo, precio_original, precio_final, descuento_aplicado"
             )
             if active_only:
-                query = query.eq("activo", True)
+                query = query.eq("activo", 1)
             resp = query.order("categoria").order("nombre").execute()
             return resp.data or []
         except Exception as e:
@@ -74,7 +74,7 @@ def _insertar_producto(nombre: str, precio: float, categoria: str, activo: bool)
                 "nombre": nombre,
                 "precio_venta": precio,
                 "categoria": categoria,
-                "activo": activo,
+                "activo": 1 if activo else 0,
                 "precio_original": precio,
                 "precio_final": precio,
                 "descuento_aplicado": 0,
@@ -106,7 +106,7 @@ def _actualizar_productos(df: pd.DataFrame):
                     "nombre": row["nombre"],
                     "precio_venta": float(row["precio_venta"]),
                     "categoria": row["categoria"],
-                    "activo": bool(row["activo"]),
+                    "activo": 1 if row["activo"] else 0,
                     "precio_original": float(row.get("precio_original", row["precio_venta"])),
                     "precio_final": float(row.get("precio_final", row["precio_venta"])),
                     "descuento_aplicado": int(row.get("descuento_aplicado", 0)),
