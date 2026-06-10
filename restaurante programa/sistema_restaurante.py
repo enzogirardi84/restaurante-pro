@@ -55,7 +55,8 @@ from security import hash_password, is_password_hash, login_logo_tag, verify_pas
 # Nuevos módulos
 from components.proveedores_utils import page_gestion_proveedores
 from components.promociones_utils import page_promociones
-from components.turnos_utils import page_gestion_turnos, widget_check_in_out
+from components.turnos_utils import widget_check_in_out
+from views.reservas import page_reservas
 from components.facturacion_electronica import page_facturacion_electronica
 from views.backups import page_backups, hacer_backup_ahora
 from views.mesas import page_mesas
@@ -180,7 +181,8 @@ def _asegurar_sqlite_local():
                "pedido_detalle", "turnos_personal", "cajas_diarias",
                "movimientos_caja", "proveedores", "movimientos_stock",
                "depositos", "stock_deposito", "promociones",
-               "sistema_estado", "accesos_sistema", "cola_sincronizacion"]
+               "sistema_estado", "accesos_sistema", "cola_sincronizacion",
+               "reservas"]
     try:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         sl_conn = sqlite3.connect(str(DB_PATH))
@@ -4080,8 +4082,8 @@ def main() -> None:
         page_gestion_proveedores()
     elif module == "Promociones":
         page_promociones()
-    elif module == "Turnos":
-        page_gestion_turnos()
+    elif module == "Reservas":
+        page_reservas()
     elif module == "Facturación":
         page_facturacion_electronica()
     elif module == "Sistema":

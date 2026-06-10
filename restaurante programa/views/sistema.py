@@ -357,7 +357,7 @@ def _subir_todo_supabase():
         "categorias", "insumos", "recetas_escandallo", "pedidos_cabecera",
         "pedido_detalle", "turnos_personal", "cajas_diarias",
         "movimientos_caja", "proveedores", "movimientos_stock",
-        "depositos", "stock_deposito", "promociones",
+        "depositos", "stock_deposito", "promociones", "reservas",
     ]
     _conn = sqlite3.connect(str(_db))
     _conn.row_factory = sqlite3.Row

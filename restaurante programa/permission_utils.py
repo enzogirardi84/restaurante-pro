@@ -15,7 +15,7 @@ ADMIN_MODULES = [
     "Inventario",
     "Proveedores",
     "Promociones",
-    "Turnos",
+    "Reservas",
     "Facturación",
     "Sistema",
     "Backups",

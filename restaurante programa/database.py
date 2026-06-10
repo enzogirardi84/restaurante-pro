@@ -738,6 +738,29 @@ def _ensure_user_role_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE usuarios ADD COLUMN contrasena TEXT")
     if not _column_exists(conn, "movimientos_caja", "tipo_movimiento"):
         conn.execute("ALTER TABLE movimientos_caja ADD COLUMN tipo_movimiento TEXT NOT NULL DEFAULT 'ingreso_venta'")
+    if not _column_exists(conn, "insumos", "precio"):
+        conn.execute("ALTER TABLE insumos ADD COLUMN precio REAL NOT NULL DEFAULT 0")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reservas (
+            id_reserva INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre_cliente TEXT NOT NULL,
+            apellido_cliente TEXT NOT NULL DEFAULT '',
+            telefono TEXT NOT NULL DEFAULT '',
+            id_mesa INTEGER NOT NULL,
+            fecha_reserva TEXT NOT NULL,
+            hora_reserva TEXT NOT NULL,
+            cantidad_personas INTEGER NOT NULL DEFAULT 1,
+            observaciones TEXT NOT NULL DEFAULT '',
+            estado TEXT NOT NULL DEFAULT 'confirmada' CHECK (estado IN ('confirmada', 'asistida', 'cancelada')),
+            creado_en TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (id_mesa) REFERENCES mesas(id_mesa)
+        )
+    """)
+    for _ix in ["idx_reservas_fecha", "idx_reservas_telefono", "idx_reservas_mesa_fecha"]:
+        try:
+            conn.execute(f"CREATE INDEX IF NOT EXISTS {_ix} ON reservas({_ix.replace('idx_reservas_','')})")
+        except Exception:
+            pass
     conn.execute("""
         UPDATE usuarios
            SET mail = LOWER(

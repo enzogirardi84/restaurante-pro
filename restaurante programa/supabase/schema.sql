@@ -63,7 +63,8 @@ create table if not exists insumos (
     nombre text not null,
     stock_actual numeric not null default 0,
     stock_minimo numeric not null default 0,
-    unidad_medida text not null default 'unidad'
+    unidad_medida text not null default 'unidad',
+    precio numeric not null default 0
 );
 
 create table if not exists proveedores (
@@ -501,6 +502,24 @@ create table if not exists facturas_electronicas (
     estado text not null default 'emitido' check (estado in ('pendiente', 'emitido', 'anulado')),
     observaciones text not null default ''
 );
+
+create table if not exists reservas (
+    id_reserva bigserial primary key,
+    nombre_cliente text not null,
+    apellido_cliente text not null default '',
+    telefono text not null default '',
+    id_mesa bigint not null references mesas(id_mesa),
+    fecha_reserva date not null,
+    hora_reserva time not null,
+    cantidad_personas integer not null default 1,
+    observaciones text not null default '',
+    estado text not null default 'confirmada' check (estado in ('confirmada', 'asistida', 'cancelada')),
+    creado_en timestamptz not null default now()
+);
+
+create index if not exists idx_reservas_fecha on reservas(fecha_reserva);
+create index if not exists idx_reservas_telefono on reservas(telefono);
+create index if not exists idx_reservas_mesa_fecha on reservas(id_mesa, fecha_reserva, hora_reserva);
 
 -- Migraciones para columnas agregadas en tablas existentes
 alter table proveedores add column if not exists cuit_rut text not null default '';

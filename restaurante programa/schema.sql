@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS insumos (
     nombre       TEXT NOT NULL,
     stock_actual REAL NOT NULL DEFAULT 0,
     stock_minimo REAL NOT NULL DEFAULT 0,
-    unidad_medida TEXT NOT NULL DEFAULT 'unidad'
+    unidad_medida TEXT NOT NULL DEFAULT 'unidad',
+    precio       REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS proveedores (
@@ -240,3 +241,22 @@ CREATE TABLE IF NOT EXISTS facturas_electronicas (
     observaciones TEXT NOT NULL DEFAULT '',
     FOREIGN KEY (id_pago) REFERENCES pagos_mesa(id_pago)
 );
+
+CREATE TABLE IF NOT EXISTS reservas (
+    id_reserva      INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre_cliente  TEXT NOT NULL,
+    apellido_cliente TEXT NOT NULL DEFAULT '',
+    telefono        TEXT NOT NULL DEFAULT '',
+    id_mesa         INTEGER NOT NULL,
+    fecha_reserva   TEXT NOT NULL,
+    hora_reserva    TEXT NOT NULL,
+    cantidad_personas INTEGER NOT NULL DEFAULT 1,
+    observaciones   TEXT NOT NULL DEFAULT '',
+    estado          TEXT NOT NULL DEFAULT 'confirmada' CHECK (estado IN ('confirmada', 'asistida', 'cancelada')),
+    creado_en       TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (id_mesa) REFERENCES mesas(id_mesa)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservas_fecha ON reservas(fecha_reserva);
+CREATE INDEX IF NOT EXISTS idx_reservas_telefono ON reservas(telefono);
+CREATE INDEX IF NOT EXISTS idx_reservas_mesa_fecha ON reservas(id_mesa, fecha_reserva, hora_reserva);

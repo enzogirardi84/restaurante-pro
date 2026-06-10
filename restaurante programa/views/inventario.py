@@ -83,6 +83,7 @@ def _tab_stock_actual():
             "stock_actual": st.column_config.NumberColumn("Stock actual", min_value=0, step=1),
             "stock_minimo": st.column_config.NumberColumn("Stock minimo", min_value=0, step=1),
             "unidad_medida": st.column_config.TextColumn("Unidad", disabled=True, width="small"),
+            "precio": st.column_config.NumberColumn("Precio $", min_value=0.0, step=10.0, format="$%.2f"),
         },
     )
 
@@ -92,9 +93,10 @@ def _tab_stock_actual():
             conn.execute("BEGIN IMMEDIATE")
             for _, r in edited.iterrows():
                 conn.execute("""
-                    UPDATE insumos SET stock_actual = ?, stock_minimo = ?
+                    UPDATE insumos SET stock_actual = ?, stock_minimo = ?, precio = ?
                     WHERE id_insumo = ?
-                """, (float(r["stock_actual"]), float(r["stock_minimo"]), int(r["id_insumo"])))
+                """, (float(r["stock_actual"]), float(r["stock_minimo"]),
+                      float(r.get("precio", 0) or 0), int(r["id_insumo"])))
             conn.commit()
             registrar_auditoria("inventario", "ajuste_masivo", f"{len(edited)} insumos")
             st.toast("Inventario actualizado")
@@ -118,9 +120,10 @@ def _tab_registrar_insumo():
         c1, c2 = st.columns(2)
         nombre = c1.text_input("Nombre del insumo*")
         unidad = c2.selectbox("Unidad de medida", ["unidad", "kg", "litro", "gramo", "cc", "mililitro", "paquete"])
-        c3, c4 = st.columns(2)
+        c3, c4, c5 = st.columns(3)
         stock_inicial = c3.number_input("Stock actual", min_value=0.0, step=1.0)
         stock_min = c4.number_input("Stock minimo", min_value=0.0, step=1.0)
+        precio = c5.number_input("Precio unitario $", min_value=0.0, step=10.0, format="%.2f")
 
         proveedores = execute_query("SELECT id_proveedor, nombre FROM proveedores WHERE activo = 1 ORDER BY nombre", fetch=True) or []
         proveedor_id = None
