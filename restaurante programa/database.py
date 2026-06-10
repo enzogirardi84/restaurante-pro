@@ -740,6 +740,8 @@ def _ensure_user_role_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE movimientos_caja ADD COLUMN tipo_movimiento TEXT NOT NULL DEFAULT 'ingreso_venta'")
     if not _column_exists(conn, "insumos", "precio"):
         conn.execute("ALTER TABLE insumos ADD COLUMN precio REAL NOT NULL DEFAULT 0")
+    if not _column_exists(conn, "mesas", "capacidad"):
+        conn.execute("ALTER TABLE mesas ADD COLUMN capacidad INTEGER NOT NULL DEFAULT 4")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS reservas (
             id_reserva INTEGER PRIMARY KEY AUTOINCREMENT,

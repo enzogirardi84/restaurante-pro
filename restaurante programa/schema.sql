@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS mesas (
     id_mesa      INTEGER PRIMARY KEY AUTOINCREMENT,
     numero_mesa  INTEGER NOT NULL UNIQUE,
     estado       TEXT NOT NULL DEFAULT 'libre'
-                 CHECK (estado IN ('libre', 'ocupada', 'esperando_cuenta'))
+                 CHECK (estado IN ('libre', 'ocupada', 'esperando_cuenta')),
+    capacidad    INTEGER NOT NULL DEFAULT 4
 );
 
 CREATE TABLE IF NOT EXISTS insumos (

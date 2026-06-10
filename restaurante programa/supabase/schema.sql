@@ -55,7 +55,8 @@ create table if not exists mesas (
     id_mesa bigserial primary key,
     numero_mesa integer not null unique,
     estado text not null default 'libre'
-        check (estado in ('libre', 'ocupada', 'esperando_cuenta'))
+        check (estado in ('libre', 'ocupada', 'esperando_cuenta')),
+    capacidad integer not null default 4
 );
 
 create table if not exists insumos (
@@ -525,3 +526,4 @@ create index if not exists idx_reservas_mesa_fecha on reservas(id_mesa, fecha_re
 alter table proveedores add column if not exists cuit_rut text not null default '';
 alter table proveedores add column if not exists direccion text not null default '';
 alter table accesos_sistema add column if not exists rol text not null default 'administrador';
+alter table mesas add column if not exists capacidad integer not null default 4;

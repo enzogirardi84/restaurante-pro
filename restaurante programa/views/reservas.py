@@ -14,8 +14,7 @@ from components.css import title, stat_card
 
 
 def _mesas_disponibles(fecha: str, hora: str, personas: int) -> list[dict]:
-    """Retorna mesas sin reserva confirmada en ±2hs alrededor de la hora dada,
-    con capacidad suficiente para `personas`."""
+    """Retorna mesas sin reserva confirmada en ±2hs alrededor de la hora dada."""
     try:
         h = int(hora.split(":")[0])
         m = int(hora.split(":")[1])
@@ -36,9 +35,14 @@ def _mesas_disponibles(fecha: str, hora: str, personas: int) -> list[dict]:
         """, (fecha, desde, hasta))
     }
 
-    todas = rows("SELECT id_mesa, numero_mesa, capacidad FROM mesas ORDER BY numero_mesa")
+    try:
+        todas = rows("SELECT id_mesa, numero_mesa, COALESCE(capacidad, 4) AS capacidad FROM mesas ORDER BY numero_mesa")
+    except Exception:
+        todas = rows("SELECT id_mesa, numero_mesa FROM mesas ORDER BY numero_mesa")
+        for m in todas:
+            m["capacidad"] = 4
     libres = [m for m in todas if m["id_mesa"] not in ocupadas
-              and (not m.get("capacidad") or int(m.get("capacidad", 99)) >= personas)]
+              and int(m.get("capacidad", 4)) >= personas]
     return libres
 
 
@@ -140,24 +144,24 @@ def _tab_nueva_reserva():
 
         enviar = st.form_submit_button("Confirmar reserva", type="primary", use_container_width=True)
 
-    if enviar:
-        if not nombre.strip():
-            st.error("El nombre del cliente es obligatorio.")
-        elif id_mesa is None:
-            st.error("No hay mesas disponibles para esa fecha/hora.")
-        else:
-            r = crear_reserva(nombre, apellido, telefono, id_mesa,
-                              fecha_str, hora_str, personas, observaciones)
-            if r["ok"]:
-                st.success(f"""
-                ### ✅ Reserva confirmada
-                **{nombre.strip()} {apellido.strip()}** — Mesa {id_mesa}
-                {fecha_str} a las {hora_str} — {personas} comensal(es)
-                Tel: {telefono or "—"}
-                """)
-                st.balloons()
+        if enviar:
+            if not nombre.strip():
+                st.error("El nombre del cliente es obligatorio.")
+            elif id_mesa is None:
+                st.error("No hay mesas disponibles para esa fecha/hora.")
             else:
-                st.error(f"Error al crear reserva: {r['error']}")
+                r = crear_reserva(nombre, apellido, telefono, id_mesa,
+                                  fecha_str, hora_str, personas, observaciones)
+                if r["ok"]:
+                    st.success(f"""
+                    ### ✅ Reserva confirmada
+                    **{nombre.strip()} {apellido.strip()}** — Mesa {id_mesa}
+                    {fecha_str} a las {hora_str} — {personas} comensal(es)
+                    Tel: {telefono or "—"}
+                    """)
+                    st.balloons()
+                else:
+                    st.error(f"Error al crear reserva: {r['error']}")
 
 
 def _tab_reservas_dia():
