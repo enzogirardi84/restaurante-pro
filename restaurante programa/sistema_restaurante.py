@@ -1892,13 +1892,17 @@ def page_caja() -> None:
                     conn.close()
         with col_cierre:
             real = st.number_input("Monto contado real", min_value=0.0, step=100.0)
-            mov = (one("""
-                SELECT
-                    COALESCE(SUM(CASE WHEN tipo_movimiento = 'ingreso_venta' THEN monto ELSE 0 END), 0) AS ingresos,
-                    COALESCE(SUM(CASE WHEN tipo_movimiento != 'ingreso_venta' THEN monto ELSE 0 END), 0) AS egresos
-                FROM movimientos_caja
-                WHERE id_caja = ?
-            """, (caja["id_caja"],)) or {"ingresos": 0, "egresos": 0})
+            mov = {"ingresos": 0, "egresos": 0}
+            try:
+                mov = (one("""
+                    SELECT
+                        COALESCE(SUM(CASE WHEN tipo_movimiento = 'ingreso_venta' THEN monto ELSE 0 END), 0) AS ingresos,
+                        COALESCE(SUM(CASE WHEN tipo_movimiento != 'ingreso_venta' THEN monto ELSE 0 END), 0) AS egresos
+                    FROM movimientos_caja
+                    WHERE id_caja = ?
+                """, (caja["id_caja"],)) or {"ingresos": 0, "egresos": 0})
+            except Exception:
+                pass
             ingresos = float(mov["ingresos"] or 0)
             egresos = float(mov["egresos"] or 0)
             esperado = cash_expected(caja["monto_apertura"], ingresos, egresos)
