@@ -159,7 +159,7 @@ def _asegurar_sqlite_local():
     usando la API REST (HTTPS, funciona via Cloudflare)."""
     import sqlite3
     _supa_url = os.environ.get("SUPABASE_URL", "")
-    _supa_key = os.environ.get("SUPABASE_ANON_KEY", "")
+    _supa_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "") or os.environ.get("SUPABASE_ANON_KEY", "")
     if not _supa_url or not _supa_key:
         return
     if not DB_PATH.exists() or DB_PATH.stat().st_size < 4096:
