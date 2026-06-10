@@ -3608,8 +3608,15 @@ def _render_export_section(desde: str, hasta: str,
         "stock": pd.DataFrame(rows("SELECT nombre, stock_actual, stock_minimo, unidad_medida FROM insumos ORDER BY nombre")),
         "movimientos_stock": pd.DataFrame(historial_stock(1000)),
         "proveedores": pd.DataFrame(rows("SELECT nombre, telefono, email, notas, cuit_rut, activo FROM proveedores ORDER BY nombre")),
-        "caja": pd.DataFrame(rows("SELECT * FROM cajas_diarias ORDER BY fecha_apertura DESC")),
+        "caja": pd.DataFrame(_safe_rows("SELECT * FROM cajas_diarias ORDER BY fecha_apertura DESC") or []),
     }
+
+
+def _safe_rows(sql: str, params: tuple = ()) -> list[dict]:
+    try:
+        return rows(sql, params)
+    except Exception:
+        return []
 
     pdf = _pdf_reporte_analisis(desde, hasta, ventas, productos, mozos, medios, total, pedidos, resumen)
     st.download_button("📄 Descargar reporte analisis PDF", pdf,
