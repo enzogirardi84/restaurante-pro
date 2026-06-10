@@ -1050,7 +1050,7 @@ def pedidos_cocina_detallados() -> list[dict]:
     """)
     if not pedidos:
         return []
-    ids = tuple(int(p["id_pedido"]) for p in pedidos)
+    ids = tuple(int(p["id_pedido"]) for p in pedidos if p.get("id_pedido") is not None)
     placeholders = ",".join("?" for _ in ids)
     detalles = rows(f"""
         SELECT pd.id_pedido,
