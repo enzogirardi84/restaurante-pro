@@ -1988,8 +1988,7 @@ def page_caja() -> None:
     mesas_con_cuenta = [m for m in mesas if float(m["total"]) > 0]
     if st.session_state.mesa_caja_id not in ids_mesas:
         st.session_state.mesa_caja_id = int((mesas_con_cuenta[0] if mesas_con_cuenta else mesas[0])["id_mesa"])
-
-    left, center, right = st.columns([0.9, 1.35, 1.05], gap="medium")
+left, center, right = st.columns([0.9, 1.35, 1.05], gap="medium")
     with left:
         st.subheader("Salon")
         for mesa_item in mesas:
@@ -2005,7 +2004,7 @@ def page_caja() -> None:
                 """,
                 unsafe_allow_html=True,
             )
-            if st.button("Seleccionar", key=f"cash_mesa_{mesa_item['id_mesa']}", use_container_width=True):
+            if st.button("Seleccionar", key=f"caja_sel_mesa_{mesa_item['id_mesa']}", use_container_width=True):
                 st.session_state.mesa_caja_id = int(mesa_item["id_mesa"])
                 st.rerun()
 
@@ -2147,14 +2146,16 @@ def page_caja() -> None:
             disabled=medio != "Efectivo",
         )
         st.session_state.efectivo_recibido = recibido
-        quick = st.columns(3)
-        for idx, (col, amount) in enumerate(zip(quick, [total, 10000, 20000])):
-            if col.button(money(amount), key=f"cash_quick_a_{idx}_{amount}", disabled=medio != "Efectivo", use_container_width=True):
+       quick = st.columns(3)
+        _quick_amounts_a = [total, 10000, 20000]
+        for idx, (col, amount) in enumerate(zip(quick, _quick_amounts_a)):
+            if col.button(money(amount), key=f"caja_quick_a_{idx}", disabled=medio != "Efectivo", use_container_width=True):
                 st.session_state.efectivo_recibido = float(amount)
                 st.rerun()
         quick2 = st.columns(3)
-        for idx, (col, amount) in enumerate(zip(quick2, [50000, 100000, 200000])):
-            if col.button(money(amount), key=f"cash_quick_b_{idx}_{amount}", disabled=medio != "Efectivo", use_container_width=True):
+        _quick_amounts_b = [50000, 100000, 200000]
+        for idx, (col, amount) in enumerate(zip(quick2, _quick_amounts_b)):
+            if col.button(money(amount), key=f"caja_quick_b_{idx}", disabled=medio != "Efectivo", use_container_width=True):
                 st.session_state.efectivo_recibido = float(amount)
                 st.rerun()
         vuelto = cash_change_due(total, float(st.session_state.efectivo_recibido or 0), medio)
