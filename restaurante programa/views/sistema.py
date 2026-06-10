@@ -214,12 +214,19 @@ def _tab_sincronizacion():
     st.divider()
     if not postgres_mode:
         _supa_section = st.secrets.get("supabase", {}) or {}
-        _supa_section_keys = str(list(_supa_section.keys())) if isinstance(_supa_section, dict) else f"not-dict:{type(_supa_section)}"
-        _debug_url = bool(_supa_section.get("url") or _supa_section.get("URL") or _supa_section.get("SUPABASE_URL") or
-                          st.secrets.get("SUPABASE_URL") or st.secrets.get("SUPABASE_REST_URL"))
-        _debug_key = bool(_supa_section.get("service_role_key") or _supa_section.get("SERVICE_ROLE_KEY") or
-                          st.secrets.get("SUPABASE_SERVICE_ROLE_KEY"))
-        st.caption(f"🔍 URL: {'✓' if _debug_url else '✗'} | KEY: {'✓' if _debug_key else '✗'} | [supabase]: {_supa_section_keys}")
+        _supa_keys = str(list(_supa_section.keys())) if isinstance(_supa_section, dict) and _supa_section else "empty"
+        # Probar todas las variantes posibles de ubicacion de URL
+        _debug_url = bool(
+            _supa_section.get("url") or _supa_section.get("URL") or
+            _supa_section.get("supabase_url") or _supa_section.get("SUPABASE_URL") or
+            st.secrets.get("SUPABASE_URL") or st.secrets.get("supabase_url") or
+            st.secrets.get("url") or st.secrets.get("URL")
+        )
+        _debug_key = bool(
+            _supa_section.get("service_role_key") or _supa_section.get("SERVICE_ROLE_KEY") or
+            st.secrets.get("SUPABASE_SERVICE_ROLE_KEY") or st.secrets.get("service_role_key")
+        )
+        st.caption(f"🔍 URL: {'✓' if _debug_url else '✗'} | KEY: {'✓' if _debug_key else '✗'} | section:{_supa_keys}")
         if st.button("Subir todo a Supabase", type="secondary", use_container_width=True):
             ok, msg = _subir_todo_supabase()
             st.toast(msg, icon="✅" if ok else "❌")
@@ -316,8 +323,12 @@ def _subir_todo_supabase():
         return False, f"No existe: {_db}"
     # Intentar leer desde [supabase] y desde flat
     _supa_section = st.secrets.get("supabase", {}) or {}
-    _supa_url = _supa_section.get("url") or _supa_section.get("URL") or st.secrets.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
-    _svc_key = _supa_section.get("service_role_key") or _supa_section.get("SERVICE_ROLE_KEY") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    _supa_url = (_supa_section.get("url") or _supa_section.get("URL") or _supa_section.get("supabase_url") or
+                 st.secrets.get("SUPABASE_URL") or st.secrets.get("supabase_url") or st.secrets.get("url") or
+                 os.environ.get("SUPABASE_URL", ""))
+    _svc_key = (_supa_section.get("service_role_key") or _supa_section.get("SERVICE_ROLE_KEY") or
+                st.secrets.get("SUPABASE_SERVICE_ROLE_KEY") or st.secrets.get("service_role_key") or
+                os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""))
     if not _supa_url or not _svc_key:
         return False, f"Faltan credenciales. URL={'OK' if _supa_url else 'NO'}, KEY={'OK' if _svc_key else 'NO'}"
     _base = _supa_url.rstrip("/") + "/rest/v1"
