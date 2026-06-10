@@ -6,9 +6,14 @@ para conectar servicios externos como Supabase y Streamlit Community Cloud.
 """
 from __future__ import annotations
 
+
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+load_dotenv(Path(__file__).parent / ".env")
 
 
 SECRET_KEYS = (
