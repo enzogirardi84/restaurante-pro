@@ -33,7 +33,11 @@ def page_sistema() -> None:
     productos_sin_receta = conteos.get("productos_sin_receta", 0)
     stock_bajo = conteos.get("stock_bajo", 0)
     db_size = _db_tamano()
-    pendientes = len(rows("SELECT 1 FROM cola_sincronizacion WHERE sincronizado = 0 LIMIT 1") or [])
+    pendientes = 0
+    try:
+        pendientes = len(rows("SELECT 1 FROM cola_sincronizacion WHERE sincronizado = 0 LIMIT 1") or [])
+    except Exception:
+        pass
 
     cols = st.columns(5)
     cols[0].metric("DB local", f"{db_size:.1f} MB", help="Tamaño del archivo SQLite")
@@ -173,11 +177,14 @@ def _tab_sincronizacion():
     st.subheader("Cola de sincronizacion")
     postgres_mode = using_postgres()
 
-    pendientes = rows("""
-        SELECT id_sync, tabla, operacion, clave_primaria, creado_en, intentos
-        FROM cola_sincronizacion WHERE sincronizado = 0
-        ORDER BY creado_en ASC LIMIT 100
-    """)
+    try:
+        pendientes = rows("""
+            SELECT id_sync, tabla, operacion, clave_primaria, creado_en, intentos
+            FROM cola_sincronizacion WHERE sincronizado = 0
+            ORDER BY creado_en ASC LIMIT 100
+        """)
+    except Exception:
+        pendientes = []
     total_pendientes = len(pendientes)
 
     c1, c2, c3 = st.columns(3)
