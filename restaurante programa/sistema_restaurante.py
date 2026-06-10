@@ -810,7 +810,7 @@ def get_menu(active_only: bool = True) -> list[dict]:
         if not productos:
             st.warning(f"No se pudieron cargar los platos. Total en DB: {_total} (antes: {_antes[0]['cnt'] if _antes else 0})", icon="⚠")
     for producto in productos:
-        precio_original = float(producto["precio_venta"])
+        precio_original = float(producto.get("precio_original") or producto["precio_venta"])
         precio_final = calcular_precio_promocion(producto["categoria"], precio_original)
         producto["precio_original"] = precio_original
         producto["precio_final"] = precio_final
