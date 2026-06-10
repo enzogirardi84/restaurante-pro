@@ -219,3 +219,28 @@ def _tab_historial():
         csv = hist.to_csv(index=False).encode("utf-8-sig")
         st.download_button("Descargar movimientos.csv", csv, file_name="movimientos_stock.csv",
                            mime="text/csv", use_container_width=True)
+        try:
+            from utils.pdf_generator import data_table, generate_pdf, money as pdf_money
+            from database import rows
+            _filas = rows("""
+                SELECT hs.*, i.nombre AS insumo
+                FROM historial_stock hs
+                JOIN insumos i ON i.id_insumo = hs.id_insumo
+                ORDER BY hs.fecha_hora DESC
+                LIMIT 100
+            """)
+            if _filas:
+                _headers = list(_filas[0].keys())
+                _rows = [[str(r.get(c, "")) for c in _headers] for r in _filas]
+                pdf = generate_pdf(
+                    title="Movimientos de stock",
+                    subtitle=f"Ultimos {len(_filas)} movimientos",
+                    kpis=[],
+                    sections=[("Historial", data_table(_headers, _rows, right_align_cols=set()))],
+                    usuario=st.session_state.get("usuario", {}).get("nombre", "sistema"),
+                    auditoria=False,
+                )
+                st.download_button("📄 Descargar PDF", pdf, file_name="movimientos_stock.pdf",
+                                   mime="application/pdf", use_container_width=True)
+        except Exception:
+            pass

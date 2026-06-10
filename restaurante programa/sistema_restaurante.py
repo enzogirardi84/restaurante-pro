@@ -3625,7 +3625,45 @@ def _render_reporte_comparativa():
     })
     st.dataframe(comp, hide_index=True, use_container_width=True)
 
+    pdf = _pdf_reporte_comparativa(p1_desde, p1_hasta, p2_desde, p2_hasta, p1, p2, comp)
+    st.download_button("📄 Descargar comparativa PDF", pdf,
+                       file_name=f"comparativa_{p1_desde}_{p2_hasta}.pdf",
+                       mime="application/pdf", use_container_width=True)
 
+
+def _pdf_reporte_comparativa(p1_d, p1_h, p2_d, p2_h, p1, p2, comp):
+    ticket1 = float(p1["ventas"]) / int(p1["pedidos"]) if int(p1["pedidos"]) else 0
+    ticket2 = float(p2["ventas"]) / int(p2["pedidos"]) if int(p2["pedidos"]) else 0
+    diff_ventas = float(p1["ventas"]) - float(p2["ventas"])
+    diff_pct = (diff_ventas / float(p2["ventas"]) * 100) if float(p2["ventas"]) else 0
+
+    rows_tbl = [
+        ["Pedidos", str(int(p1["pedidos"])), str(int(p2["pedidos"])), str(int(p1["pedidos"]) - int(p2["pedidos"]))],
+        ["Ventas", pdf_money(p1["ventas"]), pdf_money(p2["ventas"]), pdf_money(diff_ventas)],
+        ["Servicio", pdf_money(p1["servicio"]), pdf_money(p2["servicio"]),
+         pdf_money(float(p1["servicio"]) - float(p2["servicio"]))],
+        ["Ticket prom.", pdf_money(ticket1), pdf_money(ticket2),
+         pdf_money(ticket1 - ticket2)],
+    ]
+
+    sections = [("Comparativa por periodo",
+                  data_table(["Metrica", "Periodo 1", "Periodo 2", "Diferencia"], rows_tbl, right_align_cols={1, 2, 3}))]
+
+    usuario = st.session_state.get("usuario", {})
+    nombre = f"{usuario.get('nombre', '')} {usuario.get('apellido', '')}".strip() or "sistema"
+
+    return generate_pdf(
+        title="Comparativa de periodos",
+        subtitle=f"P1: {p1_d} a {p1_h}  |  P2: {p2_d} a {p2_h}",
+        kpis=[
+            ("P1 ventas", pdf_money(p1["ventas"])),
+            ("P2 ventas", pdf_money(p2["ventas"])),
+            ("Diferencia", f"{diff_pct:+.1f}%" if diff_pct else "0%"),
+        ],
+        sections=sections,
+        usuario=nombre,
+        auditoria=True,
+    )
 
 
 def page_panel() -> None:
