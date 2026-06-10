@@ -468,7 +468,7 @@ class _FallbackConnection:
 
 
 _SQLITE_INIT_DONE = False
-_PG_FALLBACK = False
+_PG_FALLBACK = True
 
 
 def get_connection(raise_on_error: bool = False):
