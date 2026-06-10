@@ -736,6 +736,8 @@ def _ensure_user_role_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE usuarios ADD COLUMN mail TEXT")
     if not _column_exists(conn, "usuarios", "contrasena"):
         conn.execute("ALTER TABLE usuarios ADD COLUMN contrasena TEXT")
+    if not _column_exists(conn, "movimientos_caja", "tipo_movimiento"):
+        conn.execute("ALTER TABLE movimientos_caja ADD COLUMN tipo_movimiento TEXT NOT NULL DEFAULT 'ingreso_venta'")
     conn.execute("""
         UPDATE usuarios
            SET mail = LOWER(
