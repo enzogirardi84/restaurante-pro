@@ -1141,6 +1141,16 @@ def terminal_mode_styles() -> None:
             }}
             @media print {{
                 .stApp::before {{ display: none; }}
+                [data-testid="stSidebar"] {{ display: none !important; }}
+                [data-testid="stHeader"] {{ display: none !important; }}
+                .stDownloadButton, .stButton {{ display: none !important; }}
+                .main .block-container {{
+                    max-width: 100% !important; width: 100% !important;
+                    padding-top: 0 !important; padding-left: 0.5in !important;
+                }}
+                [data-testid="column"] {{
+                    break-inside: avoid;
+                }}
             }}
         </style>
         """,

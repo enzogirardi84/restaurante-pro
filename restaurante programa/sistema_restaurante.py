@@ -3467,12 +3467,39 @@ def _render_reporte_analisis():
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Ventas subtotal", money(total))
     c2.metric("Pedidos cobrados", int(pedidos))
-    c3.metric("Ticket promedio", money(total / pedidos if pedidos else 0))
+    ticket_prom = total / pedidos if pedidos else 0
+    c3.metric("Ticket promedio", money(ticket_prom))
     dias_con_ventas = len(ventas)
     c4.metric("Dias con ventas", dias_con_ventas)
 
+    st.markdown("""
+    <style>
+        /* KPIs en dashboard */
+        [data-testid="metric-container"] {
+            background: #f8f6f2;
+            border: 1px solid #e0d8ce;
+            border-radius: 10px;
+            padding: 0.6rem 0.8rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+        [data-testid="metric-container"] label {
+            font-size: 0.78rem !important;
+            color: #6f685f !important;
+            font-weight: 700 !important;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        [data-testid="metric-container"] [data-testid="stMetricValue"] {
+            font-size: 1.6rem !important;
+            font-weight: 850 !important;
+            color: #2c1810 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
     if not ventas.empty:
-        st.plotly_chart(px.bar(ventas, x="dia", y="subtotal", title="Ventas diarias"), use_container_width=True)
+        st.plotly_chart(px.area(ventas, x="dia", y="subtotal", title="Tendencia de ventas diarias",
+            markers=True, color_discrete_sequence=["#8B5E3C"]), use_container_width=True)
 
     col1, col2 = st.columns(2)
     productos = pd.DataFrame(rows("""
@@ -3488,6 +3515,12 @@ def _render_reporte_analisis():
         ORDER BY cantidad DESC
         LIMIT 10
     """, params))
+    # Top 5 horizontal bar
+    if not productos.empty:
+        top5 = productos.head(5).copy()
+        st.plotly_chart(px.bar(top5, x="cantidad", y="producto", orientation="h",
+            title="Top 5 productos", color="cantidad",
+            color_continuous_scale="oranges"), use_container_width=True)
     mozos = pd.DataFrame(rows("""
         SELECT u.nombre || ' ' || u.apellido AS mozo,
                COUNT(DISTINCT pg.id_pago) AS pedidos,
