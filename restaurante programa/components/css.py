@@ -545,6 +545,7 @@ def inject_styles() -> None:
             .table-card.free { border-left-color: #8f8a82; background: #f8f7f4; }
             .table-card.busy { border-left-color: var(--blue); }
             .table-card.bill { border-left-color: var(--amber); background: #fff8e8; }
+            .table-card.reserved { border-left-color: #7b1fa2; background: #f3e8ff; }
             .table-card-num { font-size: 1.3rem; font-weight: 900; line-height: 1.1; }
             .table-card-meta {
                 display: flex;

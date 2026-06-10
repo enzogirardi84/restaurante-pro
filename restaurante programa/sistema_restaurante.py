@@ -2674,7 +2674,18 @@ def page_mozo() -> None:
             cols = st.columns(4)
             for col, mesa in zip(cols, mesas[i:i + 4]):
                 estado = mesa["estado"]
-                clase = "free" if estado == "libre" else "bill" if estado == "esperando_cuenta" else "busy"
+                # Verificar si la mesa tiene reserva confirmada para hoy
+                _tiene_reserva = False
+                try:
+                    _res = one("SELECT 1 FROM reservas WHERE id_mesa = ? AND fecha_reserva = ? AND estado = 'confirmada' LIMIT 1",
+                               (mesa["id_mesa"], datetime.now().date().isoformat()))
+                    _tiene_reserva = _res is not None
+                except Exception:
+                    pass
+                if _tiene_reserva:
+                    clase = "reserved"
+                else:
+                    clase = "free" if estado == "libre" else "bill" if estado == "esperando_cuenta" else "busy"
                 accion = "Abrir pedido" if estado == "libre" else "Agregar pedido"
                 disabled = estado == "esperando_cuenta"
                 with col:
@@ -2684,6 +2695,7 @@ def page_mozo() -> None:
                             <div class="table-card-num">Mesa {mesa['numero_mesa']}</div>
                             <div class="table-card-meta"><span>{escape(estado.replace('_', ' '))}</span><b>{money(mesa['total'])}</b></div>
                             <div class="muted">{mesa['pedidos']} pedidos activos</div>
+                            {('<div class="pill" style="background:#7b1fa2;color:white;font-size:0.7rem;margin-top:0.3rem">RESERVADA</div>' if _tiene_reserva else '')}
                         </div>
                         """,
                         unsafe_allow_html=True,
