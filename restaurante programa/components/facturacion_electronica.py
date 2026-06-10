@@ -146,9 +146,28 @@ def _pdf_factura(f: dict) -> bytes:
     y2 = y - 80
     c.line(50, y2, w - 50, y2)
 
-    # Detalle
+    # Detalle — intentar obtener items del pago asociado
+    items_str = "Venta segun detalle adjunto"
+    _id_pago = f.get("id_pago")
+    if _id_pago:
+        try:
+            from components.helpers import rows as _r
+            _det = _r("""
+                SELECT pm.nombre, pd.cantidad,
+                       COALESCE(pd.precio_unitario_facturado, pm.precio_venta) AS precio
+                FROM pago_detalle pg
+                JOIN pedido_detalle pd ON pd.id_detalle = pg.id_detalle
+                JOIN productos_menu pm ON pm.id_producto = pd.id_producto
+                WHERE pg.id_pago = ?
+            """, (_id_pago,))
+            if _det:
+                items_str = "\n".join(f"{d['cantidad']}x {d['nombre']} (${float(d['precio']):.2f} c/u)" for d in _det)
+        except Exception:
+            pass
+
     y3 = y2 - 30
     c.setFont("Helvetica-Bold", 9)
+    c.drawString(60, y3, "Concepto")
     c.drawString(60, y3, "Concepto")
     c.drawRightString(w - 200, y3, "Subtotal")
     c.drawRightString(w - 120, y3, "IVA")
@@ -287,17 +306,23 @@ def _render_listado():
         total = float(df["total"].sum())
         iva_total = float(df["iva"].sum())
         cantidad = len(df)
-        c1, c2, c3 = st.columns(3)
+        anulados = len(df[df["estado"] == "anulado"])
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Comprobantes", cantidad)
         c2.metric("Total emitido", fmt_money(total))
         c3.metric("IVA total", fmt_money(iva_total))
+        c4.metric("Anulados", anulados)
 
         for _, r in df.iterrows():
-            cols = st.columns([2, 1.5, 1, 1, 0.8])
+            cols = st.columns([2, 1.5, 1, 0.6, 0.6, 0.6])
             cols[0].markdown(f"**{r['comprobante']}**")
             cols[1].markdown(f"{r['razon_social_cliente'][:25]}")
             cols[2].markdown(fmt_money(r['total']))
-            cols[3].markdown(r['estado'].upper())
+            estado = r['estado']
+            if estado == "anulado":
+                cols[3].markdown("❌ Anulado")
+            else:
+                cols[3].markdown("✅ Emitido")
             f_dict = one("SELECT * FROM facturas_electronicas WHERE id_factura = ?", (int(r["id_factura"]),))
             if f_dict:
                 if cols[4].button("PDF", key=f"pdf_{r['id_factura']}"):
@@ -305,6 +330,10 @@ def _render_listado():
                     st.download_button("Descargar PDF", pdf_bytes,
                                        file_name=f"factura_{r['comprobante'].replace(' ', '_')}.pdf",
                                        mime="application/pdf")
+                if estado != "anulado":
+                    if cols[5].button("Anular", key=f"del_{r['id_factura']}"):
+                        anular_factura(int(r["id_factura"]))
+                        st.rerun()
 
         csv = df.to_csv(index=False).encode("utf-8-sig")
         st.download_button("Descargar comprobantes.csv", csv,
