@@ -1067,9 +1067,12 @@ def pedidos_cocina_detallados() -> list[dict]:
     """, ids)
     por_pedido: dict[int, list[dict]] = {}
     for item in detalles:
-        por_pedido.setdefault(int(item["id_pedido"]), []).append(item)
+        if item.get("id_pedido") is not None:
+            por_pedido.setdefault(int(item["id_pedido"]), []).append(item)
     armados = []
     for pedido in pedidos:
+        if pedido.get("id_pedido") is None:
+            continue
         pedido["items"] = por_pedido.get(int(pedido["id_pedido"]), [])
         if pedido["items"]:
             armados.append(pedido)
