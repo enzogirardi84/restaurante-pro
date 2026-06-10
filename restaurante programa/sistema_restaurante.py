@@ -671,9 +671,9 @@ def login() -> None:
         unsafe_allow_html=True,
     )
     st.markdown("""<label class="login-label">USUARIO</label>""", unsafe_allow_html=True)
-    usuario = st.text_input("", value="", placeholder="Ingrese su usuario", label_visibility="collapsed")
+    usuario = st.text_input("Usuario", value="", placeholder="Ingrese su usuario", label_visibility="collapsed")
     st.markdown("""<label class="login-label">CONTRASEÑA</label>""", unsafe_allow_html=True)
-    password = st.text_input("", type="password", placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022", label_visibility="collapsed")
+    password = st.text_input("Contraseña", type="password", placeholder="••••••••", label_visibility="collapsed")
     clean_login_user = normalize_access_username(usuario)
     clean_login_password = str(password or "").strip()
     recovery_user = recovery_system_access(clean_login_user, clean_login_password)
