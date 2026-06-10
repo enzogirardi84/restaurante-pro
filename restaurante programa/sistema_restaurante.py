@@ -2415,21 +2415,29 @@ def page_usuarios() -> None:
         )
         with st.form("nuevo_personal"):
             col_a, col_b = st.columns(2)
-            nombre = col_a.text_input("Nombre")
-            apellido = col_b.text_input("Apellido")
-            col_c, col_d = st.columns(2)
-            rol = col_c.selectbox("Rol", roles, format_func=role_label)
-            pin = col_d.text_input("PIN interno", type="password", placeholder="Opcional")
-            activo = st.checkbox("Activo", value=True)
+            nombre = col_a.text_input("Nombre *")
+            apellido = col_b.text_input("Apellido *")
+            col_c, col_d, col_e = st.columns(3)
+            rol = col_c.selectbox("Rol *", roles, format_func=role_label)
+            email = col_d.text_input("Email", placeholder="opcional@ejemplo.com")
+            pin = col_e.text_input("PIN", type="password", placeholder="Auto si vacio")
+            col_f, col_g = st.columns(2)
+            password = col_f.text_input("Contrasena", type="password", placeholder="Auto-generada")
+            activo = col_g.checkbox("Activo", value=True)
             if st.form_submit_button("Crear personal", type="primary"):
                 if not nombre.strip() or not apellido.strip():
                     st.error("Nombre y apellido son obligatorios.")
                 else:
+                    import secrets as _secrets, string as _string
+                    _pin_final = pin.strip() or "".join(_secrets.choice(_string.digits) for _ in range(4))
+                    _pass_final = password.strip() or "".join(_secrets.choice(_string.ascii_letters + _string.digits) for _ in range(8))
+                    _email_final = email.strip() or ""
                     from database import encolar_sync, get_connection as _gc
                     execute("""
-                        INSERT INTO usuarios (nombre, apellido, rol, pin, activo)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (nombre.strip(), apellido.strip(), rol, pin.strip() or "0000", 1 if activo else 0))
+                        INSERT INTO usuarios (nombre, apellido, mail, contrasena, rol, pin, activo)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (nombre.strip(), apellido.strip(), _email_final,
+                          hash_password(_pass_final), rol, _pin_final, 1 if activo else 0))
                     _conn = _gc()
                     try:
                         row = _conn.execute("SELECT MAX(id_usuario) AS max_id FROM usuarios").fetchone()
@@ -2438,55 +2446,82 @@ def page_usuarios() -> None:
                         _conn.close()
                     encolar_sync("usuarios", "INSERT", str(new_id), {
                         "nombre": nombre.strip(), "apellido": apellido.strip(),
-                        "rol": rol, "pin": pin.strip() or "0000", "activo": 1,
+                        "mail": _email_final, "rol": rol, "pin": _pin_final, "activo": 1,
                     })
-                    registrar_auditoria("usuarios", "personal_creado", f"{nombre} {apellido} {rol}")
-                    st.success("Personal creado.")
+                    registrar_auditoria("usuarios", "personal_creado", f"{nombre} {apellido} ({rol})")
+                    st.success(f"Personal creado. PIN: {_pin_final}")
+                    if not password.strip():
+                        st.info(f"Contrasena autogenerada: {_pass_final}")
                     st.rerun()
 
     with tab_lista:
         st.caption("Desactivar un empleado lo oculta de las terminales sin borrar su historial.")
-        df = pd.DataFrame(personal)
-        if df.empty:
+        if not personal:
             st.info("Todavia no hay personal cargado.")
             return
+        df = pd.DataFrame(personal)
         df["activo"] = df["activo"].astype(bool)
+        # Search/filter
+        _buscar = st.text_input("🔍 Buscar por nombre, apellido, email o rol", placeholder="Escriba para filtrar...")
+        if _buscar.strip():
+            _q = _buscar.strip().lower()
+            df = df[df.apply(lambda r: any(_q in str(v).lower() for v in r.values), axis=1)]
+        st.caption(f"Mostrando {len(df)} de {len(personal)} empleados")
+        _show_pin = st.checkbox("Mostrar PINs visibles", value=False)
+        col_config = {
+            "id_usuario": st.column_config.NumberColumn("ID", width="small"),
+            "nombre": st.column_config.TextColumn("Nombre"),
+            "apellido": st.column_config.TextColumn("Apellido"),
+            "mail": st.column_config.TextColumn("Email"),
+            "rol": st.column_config.SelectboxColumn("Rol", options=roles),
+            "pin": st.column_config.TextColumn("PIN", help="PIN numerico para terminal"),
+            "activo": st.column_config.CheckboxColumn("Activo"),
+        }
+        _disabled_cols = ["id_usuario"]
+        if not _show_pin:
+            df["pin"] = df["pin"].apply(lambda x: "••••" if str(x).strip() else "----")
+            col_config["pin"] = st.column_config.TextColumn("PIN", disabled=True)
         edited = st.data_editor(
             df,
             hide_index=True,
             use_container_width=True,
-            disabled=["id_usuario"],
-            column_config={
-                "id_usuario": st.column_config.NumberColumn("ID"),
-                "nombre": st.column_config.TextColumn("Nombre"),
-                "apellido": st.column_config.TextColumn("Apellido"),
-                "rol": st.column_config.SelectboxColumn("Rol", options=roles),
-                "pin": st.column_config.TextColumn("PIN"),
-                "activo": st.column_config.CheckboxColumn("Activo"),
-            },
+            disabled=_disabled_cols,
+            column_config=col_config,
+            key="editor_usuarios_lista",
         )
-        if st.button("Guardar personal", type="primary"):
+        _c1, _c2, _c3 = st.columns([1, 1, 3])
+        with _c1:
+            guardar = st.button("Guardar cambios", type="primary", use_container_width=True)
+        with _c2:
+            if st.button("📄 Exportar CSV", use_container_width=True):
+                csv_data = df.to_csv(index=False).encode("utf-8-sig")
+                st.download_button("Descargar personal.csv", csv_data,
+                                   file_name="personal.csv", mime="text/csv",
+                                   use_container_width=True)
+        with _c3:
+            st.caption("Los cambios en PIN/rol/activo se aplican al guardar.")
+        if guardar:
             from database import encolar_sync
             conn = get_connection()
             try:
                 for _, row in edited.iterrows():
                     conn.execute("""
                         UPDATE usuarios
-                           SET nombre = ?, apellido = ?, rol = ?, pin = ?, activo = ?
+                           SET nombre = ?, apellido = ?, mail = ?, rol = ?, pin = ?, activo = ?
                          WHERE id_usuario = ?
                     """, (
-                        str(row["nombre"]).strip(),
-                        str(row["apellido"]).strip(),
-                        row["rol"],
-                        str(row["pin"]) if str(row["pin"]).strip() else "0000",
+                        str(row["nombre"]).strip(), str(row["apellido"]).strip(),
+                        str(row.get("mail", "")).strip(), row["rol"],
+                        str(row["pin"]) if str(row["pin"]).strip() and str(row["pin"]) != "••••" else "0000",
                         1 if bool(row["activo"]) else 0,
                         int(row["id_usuario"]),
                     ))
                     encolar_sync("usuarios", "UPDATE", str(int(row["id_usuario"])), {
                         "nombre": str(row["nombre"]).strip(),
                         "apellido": str(row["apellido"]).strip(),
+                        "mail": str(row.get("mail", "")).strip(),
                         "rol": row["rol"],
-                        "pin": str(row["pin"]) if str(row["pin"]).strip() else "0000",
+                        "pin": str(row["pin"]) if str(row["pin"]).strip() and str(row["pin"]) != "••••" else "0000",
                         "activo": 1 if bool(row["activo"]) else 0,
                     })
                 conn.commit()
