@@ -3777,7 +3777,13 @@ def page_panel() -> None:
         WHERE fecha = ? AND estado = 'activo'
     """, (hoy,)) or {"total": 0})["total"]
 
-    top = st.columns(8)
+    reservas_hoy = 0
+    try:
+        reservas_hoy = len(rows("SELECT 1 FROM reservas WHERE fecha_reserva = ? AND estado = 'confirmada' LIMIT 50", (hoy,)) or [])
+    except Exception:
+        pass
+
+    top = st.columns(9)
     with top[0]:
         stat_card("Libres", estados["libres"] or 0, "#2e7d50")
     with top[1]:
@@ -3794,17 +3800,31 @@ def page_panel() -> None:
         stat_card("Ventas hoy", money(ventas_hoy), "#1565c0")
     with top[7]:
         stat_card("En turno", turnos_activos or 0, "#2e7d32")
+    with top[8]:
+        stat_card("Reservas", reservas_hoy or 0, "#7b1fa2")
+
+    # Alertas
+    alerts = []
+    if stock_bajo:
+        alerts.append(f"🔴 {stock_bajo} insumo(s) con stock bajo")
+    if pedidos.get("listos"):
+        alerts.append(f"🟡 {pedidos['listos']} pedido(s) listos para servir")
+    if reservas_hoy:
+        alerts.append(f"🟣 {reservas_hoy} reserva(s) confirmadas para hoy")
+    if not caja:
+        alerts.append("⚪ Caja cerrada — abrir desde el modulo Caja")
+    if alerts:
+        for a in alerts:
+            st.caption(a)
 
     staff = pd.DataFrame(rows("""
         SELECT rol, COUNT(*) AS activos
-        FROM usuarios
-        WHERE COALESCE(activo, 1) = 1
-        GROUP BY rol
-        ORDER BY rol
+        FROM usuarios WHERE COALESCE(activo, 1) = 1
+        GROUP BY rol ORDER BY rol
     """))
     caja_texto = "Cerrada"
     if caja:
-        caja_texto = f"Abierta #{caja['id_caja']} | ventas {money(caja['monto_ventas'])}"
+        caja_texto = f"Abierta #{caja['id_caja']} | Ventas {money(caja['monto_ventas'])}"
 
     col_a, col_b, col_c = st.columns([1.15, 1.15, 1])
     with col_a:
@@ -3815,69 +3835,64 @@ def page_panel() -> None:
             st.dataframe(staff, hide_index=True, use_container_width=True)
     with col_b:
         st.subheader("Caja")
-        st.markdown(
-            f"<div class='card'><b>{escape(caja_texto)}</b><br><span class='muted'>Apertura, egresos y cierres se gestionan desde Caja.</span></div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            """
-            <div class="card">
-                <b>Terminales</b><br>
-                <span class="muted">/ ?terminal=mozo</span><br>
-                <span class="muted">/ ?terminal=cocina</span><br>
-                <span class="muted">/ ?terminal=caja</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"<div class='card'><b>{escape(caja_texto)}</b><br><span class='muted'>Apertura, egresos y cierres se gestionan desde Caja.</span></div>", unsafe_allow_html=True)
     with col_c:
         st.subheader("Cocina")
-        st.markdown(
-            f"""
+        st.markdown(f"""
             <div class="card">
                 <div class="line"><span>Pendientes</span><b>{pedidos['pendientes'] or 0}</b></div>
                 <div class="line"><span>En preparacion</span><b>{pedidos['cocina'] or 0}</b></div>
                 <div class="line"><span>Listos</span><b>{pedidos['listos'] or 0}</b></div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            </div>""", unsafe_allow_html=True)
 
+    # Mesas activas
     mesas_activas = pd.DataFrame(rows("""
-        SELECT m.numero_mesa AS mesa,
-               m.estado,
+        SELECT m.numero_mesa AS mesa, m.estado,
                COUNT(DISTINCT pc.id_pedido) AS pedidos,
-               COALESCE(SUM((pd.cantidad - COALESCE(pd.cantidad_cobrada, 0) - COALESCE(pd.cantidad_anulada, 0)) * COALESCE(pd.precio_unitario_facturado, pm.precio_venta)), 0) AS subtotal
+               COALESCE(SUM((pd.cantidad - COALESCE(pd.cantidad_cobrada, 0) - COALESCE(pd.cantidad_anulada, 0))
+                   * COALESCE(pd.precio_unitario_facturado, pm.precio_venta)), 0) AS subtotal
         FROM mesas m
         JOIN pedidos_cabecera pc ON pc.id_mesa = m.id_mesa
         JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
         JOIN productos_menu pm ON pm.id_producto = pd.id_producto
         WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
           AND (pd.cantidad - COALESCE(pd.cantidad_cobrada, 0) - COALESCE(pd.cantidad_anulada, 0)) > 0
-        GROUP BY m.id_mesa, m.numero_mesa, m.estado
-        ORDER BY m.numero_mesa
+        GROUP BY m.id_mesa, m.numero_mesa, m.estado ORDER BY m.numero_mesa
     """))
     if not mesas_activas.empty:
-        mesas_activas["total_estimado"] = mesas_activas["subtotal"].apply(lambda v: float(v) + service_amount(float(v)))
+        mesas_activas["total_est."] = mesas_activas["subtotal"].apply(lambda v: float(v) + service_amount(float(v)))
         st.subheader("Mesas activas")
         st.dataframe(mesas_activas, hide_index=True, use_container_width=True)
 
+    # Pedidos recientes
+    pedidos_recientes = pd.DataFrame(rows("""
+        SELECT pc.id_pedido, m.numero_mesa, pc.estado_comanda,
+               pc.fecha_hora, u.nombre || ' ' || u.apellido AS mozo
+        FROM pedidos_cabecera pc
+        JOIN mesas m ON m.id_mesa = pc.id_mesa
+        JOIN usuarios u ON u.id_usuario = pc.id_usuario
+        WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
+        ORDER BY pc.fecha_hora DESC LIMIT 15
+    """))
+    if not pedidos_recientes.empty:
+        with st.expander("Pedidos recientes"):
+            st.dataframe(pedidos_recientes, hide_index=True, use_container_width=True)
+
+    # Ultimos eventos
     eventos = pd.DataFrame(rows("""
         SELECT fecha_hora, modulo, accion, detalle
-        FROM auditoria_eventos
-        ORDER BY fecha_hora DESC
-        LIMIT 20
+        FROM auditoria_eventos ORDER BY fecha_hora DESC LIMIT 20
     """))
     st.subheader("Ultimos eventos")
     st.dataframe(eventos, hide_index=True, use_container_width=True)
 
-    pdf = _pdf_panel(estados, pedidos, caja, stock_bajo, ventas_hoy, turnos_activos, staff, mesas_activas, eventos)
+    pdf = _pdf_panel(estados, pedidos, caja, stock_bajo, ventas_hoy, turnos_activos, staff, mesas_activas, eventos, reservas_hoy)
     st.download_button("📄 Descargar resumen PDF", pdf,
                        file_name=f"panel_{datetime.now():%Y%m%d_%H%M}.pdf",
                        mime="application/pdf", use_container_width=True)
 
 
-def _pdf_panel(estados, pedidos, caja, stock_bajo, ventas_hoy, turnos_activos, staff, mesas_activas, eventos):
+def _pdf_panel(estados, pedidos, caja, stock_bajo, ventas_hoy, turnos_activos, staff, mesas_activas, eventos, reservas_hoy=0):
     today = datetime.now().date().isoformat()
     sections = []
 
@@ -3891,6 +3906,7 @@ def _pdf_panel(estados, pedidos, caja, stock_bajo, ventas_hoy, turnos_activos, s
         ["Stock bajo", str(stock_bajo)],
         ["Ventas hoy", money(ventas_hoy)],
         ["Turnos activos", str(turnos_activos)],
+        ["Reservas hoy", str(reservas_hoy)],
     ]
     sections.append(("Resumen de indicadores",
                      data_table(["Indicador", "Valor"], rows_tbl, right_align_cols={1})))
@@ -3935,6 +3951,7 @@ def _pdf_panel(estados, pedidos, caja, stock_bajo, ventas_hoy, turnos_activos, s
             ("Stock bajo", str(stock_bajo)),
             ("Turnos activos", str(turnos_activos)),
             ("Mesas ocupadas", str(estados.get("ocupadas", 0))),
+            ("Reservas", str(reservas_hoy)),
         ],
         sections=sections,
         usuario=nombre,
