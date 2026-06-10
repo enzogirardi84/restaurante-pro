@@ -154,7 +154,8 @@ def _ensure_sslmode(url: str) -> str:
 
 def normalized_database_url() -> str:
     """Devuelve DATABASE_URL del pooler (6543) con SSL para CRUD diario."""
-    if db_engine() in {"sqlite", "local"}:
+    engine = db_engine()
+    if engine in {"sqlite", "local"}:
         return ""
     raw = database_url_pooler()
     if not raw:
