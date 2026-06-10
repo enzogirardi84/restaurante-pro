@@ -1988,7 +1988,8 @@ def page_caja() -> None:
     mesas_con_cuenta = [m for m in mesas if float(m["total"]) > 0]
     if st.session_state.mesa_caja_id not in ids_mesas:
         st.session_state.mesa_caja_id = int((mesas_con_cuenta[0] if mesas_con_cuenta else mesas[0])["id_mesa"])
-left, center, right = st.columns([0.9, 1.35, 1.05], gap="medium")
+
+    left, center, right = st.columns([0.9, 1.35, 1.05], gap="medium")
     with left:
         st.subheader("Salon")
         for mesa_item in mesas:
@@ -2146,7 +2147,7 @@ left, center, right = st.columns([0.9, 1.35, 1.05], gap="medium")
             disabled=medio != "Efectivo",
         )
         st.session_state.efectivo_recibido = recibido
-       quick = st.columns(3)
+        quick = st.columns(3)
         _quick_amounts_a = [total, 10000, 20000]
         for idx, (col, amount) in enumerate(zip(quick, _quick_amounts_a)):
             if col.button(money(amount), key=f"caja_quick_a_{idx}", disabled=medio != "Efectivo", use_container_width=True):
