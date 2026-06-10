@@ -1452,12 +1452,15 @@ def anulaciones_recientes(limit: int = 10) -> list[dict]:
 
 def generar_corte_caja(caja: dict) -> tuple[str, pd.DataFrame, pd.DataFrame]:
     cfg = restaurant_config()
-    movimientos = pd.DataFrame(rows("""
-        SELECT fecha_hora, tipo_movimiento, monto, descripcion
-        FROM movimientos_caja
-        WHERE id_caja = ?
-        ORDER BY fecha_hora
-    """, (caja["id_caja"],)))
+    try:
+        movimientos = pd.DataFrame(rows("""
+            SELECT fecha_hora, tipo_movimiento, monto, descripcion
+            FROM movimientos_caja
+            WHERE id_caja = ?
+            ORDER BY fecha_hora
+        """, (caja["id_caja"],)))
+    except Exception:
+        movimientos = pd.DataFrame(columns=["fecha_hora", "tipo_movimiento", "monto", "descripcion"])
     if caja.get("fecha_cierre"):
         medios = pd.DataFrame(rows("""
             SELECT medio_pago,
