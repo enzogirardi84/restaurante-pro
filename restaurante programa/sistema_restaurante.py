@@ -1976,6 +1976,14 @@ def page_caja() -> None:
     if not mesas:
         st.info("No hay mesas cargadas.")
         return
+    vistos: set[int] = set()
+    mesas_dedup: list[dict] = []
+    for m in mesas:
+        mid = int(m["id_mesa"])
+        if mid not in vistos:
+            vistos.add(mid)
+            mesas_dedup.append(m)
+    mesas = mesas_dedup
     ids_mesas = [int(m["id_mesa"]) for m in mesas]
     mesas_con_cuenta = [m for m in mesas if float(m["total"]) > 0]
     if st.session_state.mesa_caja_id not in ids_mesas:
