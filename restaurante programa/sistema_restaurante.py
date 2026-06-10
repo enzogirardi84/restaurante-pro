@@ -810,7 +810,14 @@ def get_menu(active_only: bool = True) -> list[dict]:
         if not productos:
             st.warning(f"No se pudieron cargar los platos. Total en DB: {_total} (antes: {_antes[0]['cnt'] if _antes else 0})", icon="⚠")
     for producto in productos:
+<<<<<<< HEAD
         precio_original = float(producto.get("precio_original") or producto["precio_venta"])
+=======
+        try:
+            precio_original = float(producto["precio_venta"]) if producto["precio_venta"] is not None else 0.0
+        except (TypeError, ValueError):
+            precio_original = 0.0
+>>>>>>> 1439e87 (fix: TypeError en get_menu - precio_venta None o invalido)
         precio_final = calcular_precio_promocion(producto["categoria"], precio_original)
         producto["precio_original"] = precio_original
         producto["precio_final"] = precio_final
