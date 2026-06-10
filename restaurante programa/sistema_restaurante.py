@@ -1563,11 +1563,13 @@ def page_cocina() -> None:
     listos     = [p for p in pedidos if p["estado_comanda"] == "listo"]
 
     # ── Métricas ──────────────────────────────────────────────────
-    m1, m2, m3, m4 = st.columns(4)
+    max_pend = elapsed_minutes(pendientes[0]["fecha_hora"]) if pendientes else 0
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Pendientes",      len(pendientes))
     m2.metric("En preparación",  len(en_cocina))
     m3.metric("Listos",          len(listos))
     m4.metric("Platos activos",  sum(int(i["cantidad"]) for p in pendientes + en_cocina for i in p["items"]))
+    m5.metric("Mayor espera", f"{max_pend}min" if max_pend else "—", delta_color="inverse" if max_pend > 15 else "off")
 
   # ── Chef view + controles ─────────────────────────────────────
     top_left, top_right = st.columns([2.2, 1])
@@ -1778,13 +1780,14 @@ def page_cocina() -> None:
         for it in pedido["items"]:
             nota = escape(it.get("observaciones") or "")
             nota_html = f"<span class='kb-note'>{nota}</span>" if nota else ""
-            dishes += f"<div class='kb-dish'><b>{int(it['cantidad'])}Ã—</b> {escape(it['nombre'])}{nota_html}</div>"
+            dishes += f"<div class='kb-dish'><b>{int(it['cantidad'])}×</b> {escape(it['nombre'])}{nota_html}</div>"
+        warn_badge = '<span style="display:inline-block;background:#dc3545;color:white;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.7rem;font-weight:800;margin-top:0.3rem">⚠ DEMORADO</span>' if minutes > 15 else ""
         return (
             f"<div class='kb-card {tc}'>"
             f"<div class='kb-card-head'>"
             f"<div><div class='kb-card-id'>#{pedido['id_pedido']}</div>"
             f"<div class='kb-card-mesa'>Mesa {pedido['numero_mesa']}</div></div>"
-            f"<span class='kb-timer'>{elapsed_label(minutes)}</span>"
+            f"<span class='kb-timer'>{elapsed_label(minutes)}{warn_badge}</span>"
             f"</div>"
             f"{dishes}"
             f"<div class='kb-mozo'> 👤  {escape(pedido['mozo'])}</div>"
@@ -1804,16 +1807,33 @@ def page_cocina() -> None:
             unsafe_allow_html=True,
         )
         for pedido in pendientes:
-            if st.button(f"▶ Iniciar  #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
-                         key=f"kb_ini_{pedido['id_pedido']}", type="primary", use_container_width=True):
-                res = avanzar_estado(pedido["id_pedido"], "pendiente")
-                if res["ok"]:
-                    st.session_state.ultimo_despachado = {"id_pedido": pedido["id_pedido"],
-                        "estado_anterior": "pendiente", "mesa": pedido["numero_mesa"]}
-                    registrar_auditoria("cocina", "avance_estado", f"{pedido['id_pedido']} pendiente")
-                    st.rerun()
-                else:
-                    st.error(res["error"])
+            _pc1, _pc2 = st.columns(2)
+            with _pc1:
+                if st.button(f"▶ Iniciar  #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
+                             key=f"kb_ini_{pedido['id_pedido']}", type="primary", use_container_width=True):
+                    res = avanzar_estado(pedido["id_pedido"], "pendiente")
+                    if res["ok"]:
+                        st.session_state.ultimo_despachado = {"id_pedido": pedido["id_pedido"],
+                            "estado_anterior": "pendiente", "mesa": pedido["numero_mesa"]}
+                        registrar_auditoria("cocina", "avance_estado", f"{pedido['id_pedido']} pendiente")
+                        st.rerun()
+                    else:
+                        st.error(res["error"])
+            with _pc2:
+                if st.button(f"✅ Listo #{pedido['id_pedido']}", key=f"kb_skip_{pedido['id_pedido']}",
+                             use_container_width=True):
+                    res1 = avanzar_estado(pedido["id_pedido"], "pendiente")
+                    if res1["ok"]:
+                        res2 = avanzar_estado(pedido["id_pedido"], "en_cocina")
+                        if res2["ok"]:
+                            st.session_state.ultimo_despachado = {"id_pedido": pedido["id_pedido"],
+                                "estado_anterior": "pendiente", "mesa": pedido["numero_mesa"]}
+                            registrar_auditoria("cocina", "avance_rapido", f"{pedido['id_pedido']}")
+                            st.rerun()
+                        else:
+                            st.error(res2["error"])
+                    else:
+                        st.error(res1["error"])
 
     # ── Columna EN COCINA ─────────────────────────────────────────
     with col_coci:
