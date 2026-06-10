@@ -5,3 +5,4 @@ openpyxl
 psycopg[binary]
 psycopg-pool
 reportlab
+supabase>=2.3.0

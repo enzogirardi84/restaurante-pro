@@ -7,6 +7,7 @@ __pycache__/
 
 # Database
 data/
+*.db
 
 # OS
 .DS_Store
@@ -20,3 +21,7 @@ Thumbs.db
 test_db.py
 test_integral.py
 test_mejoras.py
+
+# Node
+frontend/node_modules/
+frontend/dist/
