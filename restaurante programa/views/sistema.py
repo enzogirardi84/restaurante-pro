@@ -303,11 +303,30 @@ def _tab_agente_ia():
         "Para ejecucion automatica cada 5 min: `python agente_qa.py --watch`"
     )
 
-
 def _estadisticas_agente() -> dict:
     reporte_path = Path(__file__).parent.parent.parent / "data" / "reporte_agente_qa.log"
     stats = {"archivos_escaneados": 0, "corregidos": 0, "saludables": 0, "errores_log": 0}
     if not reporte_path.exists():
+        return stats
+    for linea in reporte_path.read_text(encoding="utf-8").split("\n"):
+        if "Archivos Python encontrados:" in linea:
+            try:
+                stats["archivos_escaneados"] = int(linea.split(":")[-1].strip())
+            except ValueError:
+                pass
+        if "corregidos:" in linea:
+            partes = linea.split(",")
+            for p in partes:
+                if "saludables" in p:
+                    try:
+                        stats["saludables"] = int(p.split(":")[-1].strip().split()[0])
+                    except ValueError:
+                        pass
+                if "corregidos" in p:
+                    try:
+                        stats["corregidos"] = int(p.split(":")[-1].strip().split()[0])
+                    except ValueError:
+                        pass
     return stats
 
 
@@ -373,24 +392,3 @@ def _subir_todo_supabase():
     if _errores:
         _msg += f" ({_errores} errores)"
     return _errores == 0, _msg
-    for linea in reporte_path.read_text(encoding="utf-8").split("\n"):
-        if "Archivos Python encontrados:" in linea:
-            try:
-                stats["archivos_escaneados"] = int(linea.split(":")[-1].strip())
-            except ValueError:
-                pass
-        if "corregidos:" in linea:
-            # Parsear "Resumen: X saludables, Y corregidos, Z fallaron, W rollbacks"
-            partes = linea.split(",")
-            for p in partes:
-                if "saludables" in p:
-                    try:
-                        stats["saludables"] = int(p.split(":")[-1].strip().split()[0])
-                    except ValueError:
-                        pass
-                if "corregidos" in p:
-                    try:
-                        stats["corregidos"] = int(p.split(":")[-1].strip().split()[0])
-                    except ValueError:
-                        pass
-    return stats
