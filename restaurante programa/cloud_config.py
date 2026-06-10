@@ -206,3 +206,8 @@ def masked_status_table() -> list[dict[str, str]]:
             "uso": "Clave administrativa; no debe compartirse ni subirse",
         },
     ]
+
+print("DB_ENGINE =", db_engine())
+print("DATABASE_URL =", bool(database_url()))
+print("DATABASE_URL_POOLER =", bool(database_url_pooler()))
+print("NORMALIZED =", normalized_database_url())
