@@ -220,6 +220,7 @@ def _tab_sincronizacion():
         _debug_key = bool(_supa_section.get("service_role_key") or _supa_section.get("SERVICE_ROLE_KEY") or
                           st.secrets.get("SUPABASE_SERVICE_ROLE_KEY"))
         st.caption(f"🔍 URL: {'✓' if _debug_url else '✗'} | KEY: {'✓' if _debug_key else '✗'} | [supabase]: {_supa_section_keys}")
+        if st.button("Subir todo a Supabase", type="secondary", use_container_width=True):
             ok, msg = _subir_todo_supabase()
             st.toast(msg, icon="✅" if ok else "❌")
             st.rerun()
