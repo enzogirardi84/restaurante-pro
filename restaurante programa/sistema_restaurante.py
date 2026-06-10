@@ -1201,14 +1201,17 @@ def generar_ticket(mesa: dict, detalle: list[dict], medio_pago: str, subtotal: f
 
 
 def caja_abierta() -> dict | None:
-    return one("""
-        SELECT cd.*, u.nombre || ' ' || u.apellido AS cajero
-        FROM cajas_diarias cd
-        JOIN usuarios u ON u.id_usuario = cd.id_usuario_cajero
-        WHERE cd.estado_caja = 'abierta'
-        ORDER BY cd.id_caja DESC
-        LIMIT 1
-    """)
+    try:
+        return one("""
+            SELECT cd.*, u.nombre || ' ' || u.apellido AS cajero
+            FROM cajas_diarias cd
+            JOIN usuarios u ON u.id_usuario = cd.id_usuario_cajero
+            WHERE cd.estado_caja = 'abierta'
+            ORDER BY cd.id_caja DESC
+            LIMIT 1
+        """)
+    except Exception:
+        return None
 
 
 def registrar_movimiento_caja(conn, monto: float, descripcion: str, tipo: str = "ingreso_venta") -> None:
