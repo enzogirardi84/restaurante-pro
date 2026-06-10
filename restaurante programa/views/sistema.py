@@ -213,11 +213,15 @@ def _tab_sincronizacion():
 
     st.divider()
     if not postgres_mode:
+        _debug_url = bool(st.secrets.get("supabase", {}).get("url") or st.secrets.get("SUPABASE_URL"))
+        _debug_key = bool(st.secrets.get("supabase", {}).get("service_role_key") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY"))
+        st.caption(f"🔍 URL: {'✓' if _debug_url else '✗'} | SERVICE_KEY: {'✓' if _debug_key else '✗'}")
         if st.button("Subir todo a Supabase", type="secondary", use_container_width=True):
             ok, msg = _subir_todo_supabase()
             st.toast(msg, icon="✅" if ok else "❌")
             st.rerun()
-        st.caption("Configura SERVICE_ROLE_KEY en secrets (bajo [supabase]) para activar la subida")
+        if not _debug_url or not _debug_key:
+            st.caption("Falta URL o SERVICE_ROLE_KEY en secrets → Sistema → Sincronización no disponible")
 
 
 # ── Pestana 4: Auditoria ──────────────────────────────────────────────────
