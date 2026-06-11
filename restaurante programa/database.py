@@ -1530,6 +1530,20 @@ def obtener_pedidos_por_estado() -> dict[str, list]:
         conn.close()
 
 
+def _sync_estado_supabase(id_pedido: int, estado: str) -> None:
+    try:
+        from supabase import create_client
+        from cloud_config import supabase_url, get_secret
+        url = supabase_url()
+        key = get_secret("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_ANON_KEY")
+        if url and key:
+            create_client(url, key).table("pedidos_cabecera").update(
+                {"estado_comanda": estado}
+            ).eq("id_pedido", id_pedido).execute()
+    except Exception:
+        pass
+
+
 def avanzar_estado(id_pedido: int, estado_actual: str) -> dict:
     """
     Avanza el estado de un pedido:
@@ -1546,9 +1560,13 @@ def avanzar_estado(id_pedido: int, estado_actual: str) -> dict:
                 WHERE id_pedido = ?
             """, (id_pedido,))
             conn.commit()
+            _sync_estado_supabase(id_pedido, "en_cocina")
             return {"ok": True}
         elif estado_actual == "en_cocina":
-            return confirmar_pedido_cocina(id_pedido)
+            res = confirmar_pedido_cocina(id_pedido)
+            if res.get("ok"):
+                _sync_estado_supabase(id_pedido, "listo")
+            return res
         return {"ok": False, "error": "Estado no manejado."}
     finally:
         conn.close()
@@ -1567,6 +1585,7 @@ def marcar_pedido_entregado(id_pedido: int) -> dict:
         conn.commit()
         if cur.rowcount == 0:
             return {"ok": False, "error": "El pedido no esta listo o no existe."}
+        _sync_estado_supabase(id_pedido, "entregado")
         return {"ok": True}
     finally:
         conn.close()

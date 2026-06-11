@@ -976,6 +976,44 @@ def mozo_operativo() -> dict:
     return seleccionado
 
 
+def _get_supabase():
+    try:
+        from supabase import create_client
+        from cloud_config import supabase_url, get_secret
+        url = supabase_url()
+        key = get_secret("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_ANON_KEY")
+        if url and key:
+            return create_client(url, key)
+    except Exception:
+        pass
+    return None
+
+
+def _sync_pedido_a_supabase(id_pedido: int, id_mesa: int, id_usuario: int, items: list[dict]) -> None:
+    sb = _get_supabase()
+    if not sb:
+        return
+    try:
+        import datetime
+        sb.table("pedidos_cabecera").insert({
+            "id_pedido": id_pedido,
+            "id_mesa": id_mesa,
+            "id_usuario": id_usuario,
+            "estado_comanda": "pendiente",
+            "fecha_hora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }).execute()
+        for item in items:
+            sb.table("pedido_detalle").insert({
+                "id_pedido": id_pedido,
+                "id_producto": int(item["id_producto"]),
+                "cantidad": int(item["cantidad"]),
+                "observaciones": item.get("observaciones", ""),
+                "precio_unitario_facturado": float(item.get("precio_unitario_facturado", 0)),
+            }).execute()
+    except Exception:
+        pass
+
+
 def crear_pedido(id_mesa: int, id_usuario: int, cart: dict[int, dict]) -> int:
     items = normalize_order_cart(cart)
     if not items:
@@ -1015,8 +1053,10 @@ def crear_pedido(id_mesa: int, id_usuario: int, cart: dict[int, dict]) -> int:
                 item["observaciones"],
                 precio_facturado,
             ))
+            item["precio_unitario_facturado"] = precio_facturado
         conn.execute("UPDATE mesas SET estado = 'ocupada' WHERE id_mesa = ?", (id_mesa,))
         conn.execute("COMMIT")
+        _sync_pedido_a_supabase(id_pedido, id_mesa, id_usuario, items)
         return int(id_pedido)
     except Exception:
         conn.execute("ROLLBACK")
@@ -1084,7 +1124,73 @@ def kds_status_class(minutes: int) -> str:
     return "normal"
 
 
+def _pedidos_desde_supabase(estados: tuple) -> list[dict] | None:
+    sb = _get_supabase()
+    if not sb:
+        return None
+    try:
+        peds = sb.table("pedidos_cabecera").select(
+            "id_pedido, fecha_hora, estado_comanda, id_mesa, id_usuario"
+        ).in_("estado_comanda", list(estados)).order("fecha_hora").execute()
+        if not peds.data:
+            return []
+        id_mesas = list(set(p["id_mesa"] for p in peds.data))
+        id_usuarios = list(set(p["id_usuario"] for p in peds.data))
+        mesas_map = {}
+        for mid in id_mesas:
+            try:
+                r = sb.table("mesas").select("numero_mesa").eq("id_mesa", mid).execute()
+                if r.data:
+                    mesas_map[mid] = r.data[0]["numero_mesa"]
+            except Exception:
+                pass
+        users_map = {}
+        for uid in id_usuarios:
+            try:
+                r = sb.table("usuarios").select("nombre, apellido").eq("id_usuario", uid).execute()
+                if r.data:
+                    users_map[uid] = f"{r.data[0]['nombre']} {r.data[0]['apellido']}"
+            except Exception:
+                pass
+        ids = [p["id_pedido"] for p in peds.data]
+        dets = sb.table("pedido_detalle").select(
+            "id_pedido, id_producto, cantidad, observaciones"
+        ).in_("id_pedido", ids).execute()
+        det_por_pedido: dict[int, list[dict]] = {}
+        for d in dets.data:
+            det_por_pedido.setdefault(d["id_pedido"], []).append(d)
+        result = []
+        for p in peds.data:
+            items_raw = det_por_pedido.get(p["id_pedido"], [])
+            if not items_raw:
+                continue
+            items_out = []
+            for i in items_raw:
+                items_out.append({
+                    "nombre": f"Producto #{i['id_producto']}",
+                    "cantidad": i["cantidad"],
+                    "categoria": "",
+                    "observaciones": i.get("observaciones", ""),
+                })
+            result.append({
+                "id_pedido": p["id_pedido"],
+                "fecha_hora": p["fecha_hora"],
+                "estado_comanda": p["estado_comanda"],
+                "numero_mesa": mesas_map.get(p["id_mesa"], str(p["id_mesa"])),
+                "mozo": users_map.get(p["id_usuario"], f"Usuario #{p['id_usuario']}"),
+                "items": items_out,
+            })
+        return result
+    except Exception:
+        return None
+
+
 def pedidos_cocina_detallados() -> list[dict]:
+    estados = ("pendiente", "en_cocina", "listo")
+    supabase_data = _pedidos_desde_supabase(estados)
+    if supabase_data is not None:
+        return supabase_data
+
     cutoff = active_order_cutoff()
     pedidos = rows("""
         SELECT pc.id_pedido,
