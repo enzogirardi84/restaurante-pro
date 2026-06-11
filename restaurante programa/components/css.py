@@ -100,6 +100,10 @@ def inject_styles() -> None:
             div.stTextInput, div.stTextArea, div.stSelectbox {
                 margin-bottom: 0.4rem !important;
             }
+            div[data-baseweb="popover"] div[role="listbox"] {
+                max-height: 17rem !important;
+                overflow-y: auto !important;
+            }
             /* Metric cards mas compactas */
             div[data-testid="metric-container"] {
                 background: white;
@@ -553,7 +557,7 @@ def inject_styles() -> None:
             /* Waiter chips */
             .waiter-strip {
                 display: grid;
-                grid-template-columns: repeat(4, minmax(0, 1fr));
+                grid-template-columns: repeat(5, minmax(0, 1fr));
                 gap: 0.6rem;
                 margin-bottom: 0.85rem;
             }
@@ -580,6 +584,63 @@ def inject_styles() -> None:
                 font-weight: 880;
                 line-height: 1.15;
             }
+            .waiter-control-panel {
+                background: var(--panel);
+                border: 1px solid var(--line);
+                border-radius: var(--radius);
+                padding: 0.75rem 0.85rem;
+                margin: 0.75rem 0 0.85rem;
+                box-shadow: var(--shadow-sm);
+            }
+            .waiter-control-title {
+                color: var(--muted);
+                font-size: 0.78rem;
+                font-weight: 800;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                margin-bottom: 0.45rem;
+            }
+            .waiter-helper {
+                color: var(--muted);
+                font-size: 0.86rem;
+                margin: 0.2rem 0 0.65rem;
+            }
+            .salon-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 1rem;
+                margin: 0.9rem 0 0.45rem;
+            }
+            .salon-title {
+                font-size: 1.35rem;
+                font-weight: 850;
+                line-height: 1.15;
+            }
+            .salon-legend {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.45rem;
+                color: var(--muted);
+                font-size: 0.78rem;
+                font-weight: 760;
+            }
+            .legend-dot {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.25rem;
+                white-space: nowrap;
+            }
+            .legend-dot::before {
+                content: "";
+                width: 0.58rem;
+                height: 0.58rem;
+                border-radius: 999px;
+                background: #8f8a82;
+            }
+            .legend-dot.busy::before { background: var(--blue); }
+            .legend-dot.bill::before { background: var(--amber); }
+            .legend-dot.reserved::before { background: #7b1fa2; }
 
             /* Table cards */
             .table-card {
@@ -588,7 +649,7 @@ def inject_styles() -> None:
                 border-left: 5px solid #9a958c;
                 border-radius: var(--radius-sm);
                 padding: 0.78rem;
-                min-height: 118px;
+                min-height: 128px;
                 box-shadow: var(--shadow-sm);
                 margin-bottom: 0.5rem;
                 transition: all 0.25s ease;
@@ -609,6 +670,13 @@ def inject_styles() -> None:
                 font-size: 0.84rem;
                 margin-top: 0.25rem;
             }
+            .table-card-meta b {
+                color: var(--ink);
+                white-space: nowrap;
+            }
+            .table-card-actions {
+                margin-bottom: 1rem;
+            }
 
             /* Ready order */
             .ready-order {
@@ -621,6 +689,16 @@ def inject_styles() -> None:
             }
             .ready-order:hover {
                 background: #e5f3e8;
+            }
+            .ready-title {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 1rem;
+                margin: 0.85rem 0 0.45rem;
+            }
+            .ready-title h3 {
+                margin: 0 !important;
             }
 
             /* Note presets */
@@ -670,6 +748,15 @@ def inject_styles() -> None:
                 font-size: 1.2rem;
                 font-weight: 850;
                 margin-bottom: 0.5rem;
+            }
+            .cart-empty {
+                border: 1px dashed var(--line-strong);
+                border-radius: var(--radius-sm);
+                padding: 0.85rem;
+                color: var(--muted);
+                background: var(--panel-soft);
+                text-align: center;
+                font-weight: 700;
             }
 
             /* KDS Kitchen */
@@ -1134,6 +1221,7 @@ def inject_styles() -> None:
                 .terminal-bar { flex-direction: column; align-items: flex-start; }
                 .terminal-chip { width: 100%; text-align: center; }
                 .waiter-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                .salon-head { align-items: flex-start; flex-direction: column; }
                 .cart-panel { position: static; margin-top: 1rem; }
                 .pay-panel { position: static; }
                 .kds-head { align-items: flex-start; flex-direction: column; }

@@ -904,13 +904,26 @@ def get_mesas() -> list[dict]:
 
 
 def get_mozos() -> list[dict]:
-    return rows("""
+    mozos = rows("""
         SELECT id_usuario, nombre, apellido, rol, pin
         FROM usuarios
         WHERE TRIM(LOWER(rol)) = 'mozo'
           AND COALESCE(activo, 1) = 1
         ORDER BY nombre, apellido
     """)
+    unicos: list[dict] = []
+    vistos: set[str] = set()
+    for mozo in mozos:
+        nombre = str(mozo.get("nombre") or "").strip()
+        apellido = str(mozo.get("apellido") or "").strip()
+        clave = " ".join(f"{nombre} {apellido}".lower().split())
+        if not clave:
+            clave = f"id:{mozo.get('id_usuario')}"
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        unicos.append(mozo)
+    return unicos
 
 
 def get_personal(rol: str | None = None, active_only: bool = False) -> list[dict]:
@@ -2628,10 +2641,12 @@ def render_waiter_summary(mesas: list[dict], listos: list[dict], operativo: dict
     libres = sum(1 for m in mesas if m["estado"] == "libre")
     ocupadas = sum(1 for m in mesas if m["estado"] == "ocupada")
     cuenta = sum(1 for m in mesas if m["estado"] == "esperando_cuenta")
+    nombre_mozo = f"{operativo.get('nombre', '')} {operativo.get('apellido', '')}".strip()
     st.markdown(
         f"""
         <div class="waiter-strip">
-            <div class="waiter-chip"><div class="waiter-chip-label">Mozo</div><div class="waiter-chip-value">{escape(operativo['nombre'])}</div></div>
+            <div class="waiter-chip"><div class="waiter-chip-label">Mozo</div><div class="waiter-chip-value">{escape(nombre_mozo or 'Sin asignar')}</div></div>
+            <div class="waiter-chip"><div class="waiter-chip-label">Libres</div><div class="waiter-chip-value">{libres}</div></div>
             <div class="waiter-chip"><div class="waiter-chip-label">Ocupadas</div><div class="waiter-chip-value">{ocupadas}</div></div>
             <div class="waiter-chip"><div class="waiter-chip-label">En cuenta</div><div class="waiter-chip-value">{cuenta}</div></div>
             <div class="waiter-chip"><div class="waiter-chip-label">Listos</div><div class="waiter-chip-value">{len(listos)}</div></div>
@@ -2670,25 +2685,56 @@ def page_mozo() -> None:
 
     if st.session_state.mesa_actual is None:
         title("Terminal de mozo", "Mesas, pedidos, entrega y cuenta en modo tactil.")
-        if len(mozos) > 1:
-            ids = [m["id_usuario"] for m in mozos]
-            current_index = ids.index(operativo["id_usuario"]) if operativo["id_usuario"] in ids else 0
-            elegido = st.selectbox(
-                "Mozo operativo",
-                mozos,
-                index=current_index,
-                format_func=lambda m: f"{m['nombre']} {m['apellido']}",
-                help="Identifica quien toma el pedido.",
-            )
-            st.session_state.mozo_operativo_id = elegido["id_usuario"]
-            operativo = elegido
+        with st.container(border=True):
+            st.markdown('<div class="waiter-control-title">Mozo operativo</div>', unsafe_allow_html=True)
+            if len(mozos) > 1:
+                if len(mozos) <= 4:
+                    cols_mozo = st.columns(len(mozos))
+                    for idx, mozo in enumerate(mozos):
+                        nombre = f"{mozo['nombre']} {mozo['apellido']}".strip()
+                        activo = int(mozo["id_usuario"]) == int(operativo["id_usuario"])
+                        with cols_mozo[idx]:
+                            if st.button(
+                                nombre,
+                                key=f"mozo_operativo_btn_{mozo['id_usuario']}",
+                                type="primary" if activo else "secondary",
+                                use_container_width=True,
+                            ):
+                                st.session_state.mozo_operativo_id = mozo["id_usuario"]
+                                operativo = mozo
+                                st.rerun()
+                else:
+                    ids = [m["id_usuario"] for m in mozos]
+                    current_index = ids.index(operativo["id_usuario"]) if operativo["id_usuario"] in ids else 0
+                    elegido = st.selectbox(
+                        "Elegir mozo",
+                        mozos,
+                        index=current_index,
+                        format_func=lambda m: f"{m['nombre']} {m['apellido']}",
+                        help="Identifica quien toma el pedido.",
+                    )
+                    st.session_state.mozo_operativo_id = elegido["id_usuario"]
+                    operativo = elegido
+            else:
+                st.markdown(
+                    f"<div class='waiter-helper'>{escape(operativo['nombre'])} {escape(operativo['apellido'])}</div>",
+                    unsafe_allow_html=True,
+                )
 
         mesas = mesas_para_caja()
         listos = pedidos_listos_mozo()
         render_waiter_summary(mesas, listos, operativo)
 
         if listos:
-            st.subheader("Pedidos listos")
+            st.markdown(
+                f"""
+                <div class="ready-title">
+                    <h3>Pedidos listos</h3>
+                    <span class="muted">{len(listos)} para entregar</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
             ready_cols = st.columns(2)
             for idx, pedido in enumerate(listos):
                 with ready_cols[idx % 2]:
@@ -2709,13 +2755,16 @@ def page_mozo() -> None:
                             st.rerun()
                         st.error(res["error"])
 
-        filtro_estado = st.radio(
-            "Filtro de mesas",
-            ["Todas", "Libres", "Ocupadas", "En cuenta"],
-            index=0,
-            horizontal=True,
-            label_visibility="collapsed",
-        )
+        filtros_col, buscar_col = st.columns([1.6, 1], gap="large")
+        with filtros_col:
+            filtro_estado = st.radio(
+                "Filtro de mesas",
+                ["Todas", "Libres", "Ocupadas", "En cuenta"],
+                index=0,
+                horizontal=True,
+            )
+        with buscar_col:
+            buscar_mesa = st.text_input("Buscar mesa", placeholder="Numero de mesa").strip()
         mapa_filtro = {
             "Libres": "libre",
             "Ocupadas": "ocupada",
@@ -2723,8 +2772,26 @@ def page_mozo() -> None:
         }
         if filtro_estado != "Todas":
             mesas = [m for m in mesas if m["estado"] == mapa_filtro[filtro_estado]]
+        if buscar_mesa:
+            mesas = [m for m in mesas if buscar_mesa in str(m["numero_mesa"])]
 
-        st.subheader("Salon")
+        st.markdown(
+            """
+            <div class="salon-head">
+                <div class="salon-title">Salon</div>
+                <div class="salon-legend">
+                    <span class="legend-dot">Libre</span>
+                    <span class="legend-dot busy">Ocupada</span>
+                    <span class="legend-dot bill">En cuenta</span>
+                    <span class="legend-dot reserved">Reservada</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if not mesas:
+            st.info("No hay mesas para este filtro.")
+            return
         for i in range(0, len(mesas), 4):
             cols = st.columns(4)
             for col, mesa in zip(cols, mesas[i:i + 4]):
@@ -2767,6 +2834,10 @@ def page_mozo() -> None:
 
     mesa = st.session_state.mesa_actual
     title(f"Pedido mesa {mesa['numero_mesa']}", "Productos, cantidades y notas para cocina.")
+    if st.button("Volver al salon", use_container_width=False):
+        st.session_state.mesa_actual = None
+        st.session_state.cart = {}
+        st.rerun()
     pedidos_previos = pedidos_mesa_resumen(mesa["id_mesa"])
     if pedidos_previos:
         with st.expander("Pedidos activos de esta mesa", expanded=False):
@@ -2779,14 +2850,27 @@ def page_mozo() -> None:
     left, right = st.columns([1.62, 0.88], gap="large")
     menu = get_menu()
     with left:
-        from components.categorias import CATEGORIAS_MENU
+        from components.categorias import CATEGORIAS_MENU, CATEGORIAS_LEGACY
         filtro = st.text_input("Buscar producto", placeholder="Escribi nombre del plato...").strip().lower()
         if filtro:
             _resultados = [p for p in menu if filtro in p["nombre"].lower()]
             if len(_resultados) > 0:
                 st.caption(f"{len(_resultados)} resultado(s) para '{filtro}'")
-        tabs = st.tabs(CATEGORIAS_MENU)
-        for tab, cat in zip(tabs, CATEGORIAS_MENU):
+        categorias_ordenadas = [
+            cat
+            for cat in CATEGORIAS_MENU + CATEGORIAS_LEGACY
+            if any(p["categoria"] == cat for p in menu)
+        ]
+        categorias_extra = sorted({
+            str(p["categoria"])
+            for p in menu
+            if p["categoria"] not in set(CATEGORIAS_MENU + CATEGORIAS_LEGACY)
+        })
+        categorias_visibles = categorias_ordenadas + categorias_extra
+        if not categorias_visibles:
+            st.info("No hay productos activos en el menu.")
+        tabs = st.tabs(categorias_visibles) if categorias_visibles else []
+        for tab, cat in zip(tabs, categorias_visibles):
             with tab:
                 productos = [p for p in menu if p["categoria"] == cat and (not filtro or filtro in p["nombre"].lower())]
                 if not productos:
@@ -2824,45 +2908,46 @@ def page_mozo() -> None:
                             st.markdown("<div class='muted' style='padding-top:.8rem'>Sin nota</div>", unsafe_allow_html=True)
 
     with right:
-        st.markdown("<div class='cart-title'>Pedido actual</div>", unsafe_allow_html=True)
-        total = 0.0
-        if not st.session_state.cart:
-            st.info("Agrega productos con el boton +.")
-        for pid, item in list(st.session_state.cart.items()):
-            importe = int(item["cantidad"]) * float(item["precio"])
-            total += importe
+        with st.container(border=True):
+            items_total = sum(int(item["cantidad"]) for item in st.session_state.cart.values())
             st.markdown(
-                f"<div class='line'><span><b>{item['cantidad']}x</b> {escape(item['nombre'])}<br><span class='muted'>{escape(item.get('observaciones') or 'Sin observaciones')}</span></span><b>{money(importe)}</b></div>",
+                f"<div class='cart-title'>Pedido actual <span class='muted'>({items_total} items)</span></div>",
                 unsafe_allow_html=True,
             )
-            note_cols = st.columns(2)
-            for label in ["Sin cebolla", "Sin sal", "Bien cocido", "Para llevar"]:
-                idx = ["Sin cebolla", "Sin sal", "Bien cocido", "Para llevar"].index(label)
-                if note_cols[idx % 2].button(label, key=f"mozo2_note_preset_{pid}_{idx}", use_container_width=True):
-                    current = st.session_state.cart[pid].get("observaciones", "").strip()
-                    st.session_state.cart[pid]["observaciones"] = f"{current}; {label}".strip("; ")
+            total = 0.0
+            if not st.session_state.cart:
+                st.markdown("<div class='cart-empty'>Agrega productos con el boton +.</div>", unsafe_allow_html=True)
+            for pid, item in list(st.session_state.cart.items()):
+                importe = int(item["cantidad"]) * float(item["precio"])
+                total += importe
+                st.markdown(
+                    f"<div class='line'><span><b>{item['cantidad']}x</b> {escape(item['nombre'])}<br><span class='muted'>{escape(item.get('observaciones') or 'Sin observaciones')}</span></span><b>{money(importe)}</b></div>",
+                    unsafe_allow_html=True,
+                )
+                note_cols = st.columns(2)
+                presets = ["Sin cebolla", "Sin sal", "Bien cocido", "Para llevar"]
+                for idx, label in enumerate(presets):
+                    if note_cols[idx % 2].button(label, key=f"mozo2_note_preset_{pid}_{idx}", use_container_width=True):
+                        current = st.session_state.cart[pid].get("observaciones", "").strip()
+                        st.session_state.cart[pid]["observaciones"] = f"{current}; {label}".strip("; ")
+                        st.rerun()
+                if st.button("Quitar producto", key=f"mozo2_remove_{pid}", use_container_width=True):
+                    st.session_state.cart.pop(pid, None)
                     st.rerun()
-            if st.button("Quitar producto", key=f"mozo2_remove_{pid}", use_container_width=True):
-                st.session_state.cart.pop(pid, None)
-                st.rerun()
-        st.markdown(f"<div class='total'><span>Total pedido</span><span>{money(total)}</span></div>", unsafe_allow_html=True)
-        if st.button("Enviar a cocina", type="primary", disabled=not st.session_state.cart, use_container_width=True):
-            try:
-                pedido = crear_pedido(mesa["id_mesa"], operativo["id_usuario"], st.session_state.cart)
-                registrar_auditoria("mozo", "pedido_creado", f"Pedido {pedido}, mesa {mesa['numero_mesa']}")
-                st.success(f"Pedido #{pedido} enviado a cocina.")
-                st.session_state.mesa_actual = None
+            st.markdown(f"<div class='total'><span>Total pedido</span><span>{money(total)}</span></div>", unsafe_allow_html=True)
+            if st.button("Enviar a cocina", type="primary", disabled=not st.session_state.cart, use_container_width=True):
+                try:
+                    pedido = crear_pedido(mesa["id_mesa"], operativo["id_usuario"], st.session_state.cart)
+                    registrar_auditoria("mozo", "pedido_creado", f"Pedido {pedido}, mesa {mesa['numero_mesa']}")
+                    st.success(f"Pedido #{pedido} enviado a cocina.")
+                    st.session_state.mesa_actual = None
+                    st.session_state.cart = {}
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
+            if st.button("Vaciar pedido", disabled=not st.session_state.cart, use_container_width=True):
                 st.session_state.cart = {}
                 st.rerun()
-            except Exception as exc:
-                st.error(str(exc))
-        if st.button("Vaciar pedido", disabled=not st.session_state.cart, use_container_width=True):
-            st.session_state.cart = {}
-            st.rerun()
-        if st.button("Volver al salon", use_container_width=True):
-            st.session_state.mesa_actual = None
-            st.session_state.cart = {}
-            st.rerun()
 
 
 
