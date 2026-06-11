@@ -1345,461 +1345,174 @@ def _seed_inserts(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-# ── Transacción crítica: confirmar pedido y descontar stock ────────────
+# ── Helper: recuperar pedido desde Supabase si falta en SQLite ────────
 
-def confirmar_pedido_cocina(id_pedido: int) -> dict:
-    """
-    Transacción ATÓMICA que:
-      1. Cambia el estado del pedido a 'listo'.
-      2. Descuenta del inventario los insumos según las recetas de escandallo.
-
-    Retorna un dict con resultado y mensaje.
-    """
-    conn = get_connection()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-
-        # ── 1. Validar que el pedido existe y está en 'en_cocina' ──
-        row = conn.execute(
-            "SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = ?",
-            (id_pedido,)
-        ).fetchone()
-
-        if row is None:
-            conn.execute("ROLLBACK")
-            return {"ok": False, "error": f"El pedido {id_pedido} no existe."}
-
-        if row["estado_comanda"] != "en_cocina":
-            conn.execute("ROLLBACK")
-            return {
-                "ok": False,
-                "error": f"Estado inválido: '{row['estado_comanda']}'. Debe ser 'en_cocina'."
-            }
-
-        # ── 2. Obtener detalle del pedido ──
-        detalle = conn.execute("""
-            SELECT pd.id_producto, pd.cantidad, pm.nombre
-            FROM pedido_detalle pd
-            JOIN productos_menu pm ON pm.id_producto = pd.id_producto
-            WHERE pd.id_pedido = ?
-        """, (id_pedido,)).fetchall()
-
-        if not detalle:
-            conn.execute("ROLLBACK")
-            return {"ok": False, "error": "El pedido no tiene productos asociados."}
-
-        # ── 3. Descontar insumos según escandallo ──
-        for item in detalle:
-            recetas = conn.execute("""
-                SELECT id_insumo, cantidad_a_descontar
-                FROM recetas_escandallo
-                WHERE id_producto = ?
-            """, (item["id_producto"],)).fetchall()
-
-            if not recetas:
-                conn.execute("ROLLBACK")
-                return {
-                    "ok": False,
-                    "error": f"'{item['nombre']}' no tiene receta de escandallo registrada."
-                }
-
-            for receta in recetas:
-                cantidad_total = receta["cantidad_a_descontar"] * item["cantidad"]
-                stock = conn.execute("""
-                    SELECT nombre, stock_actual, unidad_medida
-                    FROM insumos
-                    WHERE id_insumo = ?
-                """, (receta["id_insumo"],)).fetchone()
-                if stock is None:
-                    conn.execute("ROLLBACK")
-                    return {"ok": False, "error": "La receta tiene un insumo inexistente."}
-                if stock["stock_actual"] < cantidad_total:
-                    conn.execute("ROLLBACK")
-                    return {
-                        "ok": False,
-                        "error": (
-                            f"Stock insuficiente para '{stock['nombre']}'. "
-                            f"Necesita {cantidad_total:.0f} {stock['unidad_medida']} "
-                            f"y hay {stock['stock_actual']:.0f}."
-                        )
-                    }
-                stock_anterior = float(stock["stock_actual"])
-                stock_nuevo = stock_anterior - float(cantidad_total)
-                conn.execute("""
-                    UPDATE insumos
-                    SET stock_actual = stock_actual - ?
-                    WHERE id_insumo = ?
-                """, (cantidad_total, receta["id_insumo"]))
-                conn.execute("""
-                    INSERT INTO movimientos_stock
-                        (id_insumo, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, descripcion)
-                    VALUES (?, 'descuento_receta', ?, ?, ?, ?)
-                """, (
-                    receta["id_insumo"],
-                    cantidad_total,
-                    stock_anterior,
-                    stock_nuevo,
-                    f"Pedido {id_pedido} - {item['nombre']}",
-                ))
-                conn.execute("""
-                    UPDATE stock_deposito
-                       SET cantidad_disponible = MAX(cantidad_disponible - ?, 0)
-                     WHERE id_insumo = ?
-                       AND id_deposito = (
-                           SELECT id_deposito
-                             FROM stock_deposito
-                            WHERE id_insumo = ?
-                            ORDER BY cantidad_disponible DESC
-                            LIMIT 1
-                       )
-                """, (cantidad_total, receta["id_insumo"], receta["id_insumo"]))
-
-        # ── 4. Cambiar estado a 'listo' ──
-        conn.execute("""
-            UPDATE pedidos_cabecera
-            SET estado_comanda = 'listo'
-            WHERE id_pedido = ?
-        """, (id_pedido,))
-
-        conn.execute("COMMIT")
-
-        # ── 5. Verificar stock mínimo y devolver advertencias ──
-        advertencias = []
-        bajos = conn.execute("""
-            SELECT nombre, stock_actual, stock_minimo
-            FROM insumos
-            WHERE stock_actual <= stock_minimo
-        """).fetchall()
-        for ins in bajos:
-            advertencias.append(
-                f"⚠️  Stock bajo: '{ins['nombre']}' "
-                f"({ins['stock_actual']:.0f} / {ins['stock_minimo']:.0f})"
-            )
-
-        return {"ok": True, "advertencias": advertencias}
-
-    except sqlite3.Error as e:
-        conn.execute("ROLLBACK")
-        return {"ok": False, "error": f"Error de base de datos: {str(e)}"}
-    finally:
-        conn.close()
-
-
-# ── Consultas helper para la UI ───────────────────────────────────────
-
-def obtener_pedidos_por_estado() -> dict[str, list]:
-    """Retorna los pedidos agrupados por estado_comanda."""
-    cutoff = active_order_cutoff()
-    conn = get_connection()
-    try:
-        filas = conn.execute("""
-            SELECT pc.id_pedido,
-                   pc.fecha_hora,
-                   pc.estado_comanda,
-                   m.numero_mesa,
-                   u.nombre || ' ' || u.apellido AS mozo,
-                   GROUP_CONCAT(
-                       '(' || (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) || 'x) ' || pm.nombre ||
-                       CASE WHEN pd.observaciones != '' THEN ' [' || pd.observaciones || ']' ELSE '' END,
-                       '\n'
-                   ) AS detalle_texto
-            FROM pedidos_cabecera pc
-            JOIN mesas m           ON m.id_mesa = pc.id_mesa
-            JOIN usuarios u        ON u.id_usuario = pc.id_usuario
-            JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
-            JOIN productos_menu pm ON pm.id_producto = pd.id_producto
-            WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo')
-              AND pc.fecha_hora >= ?
-              AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
-            GROUP BY pc.id_pedido, pc.fecha_hora, pc.estado_comanda, m.numero_mesa, u.nombre, u.apellido
-            ORDER BY pc.fecha_hora ASC
-        """, (cutoff,)).fetchall()
-
-        agrupados: dict[str, list] = {"pendiente": [], "en_cocina": [], "listo": []}
-        for f in filas:
-            agrupados[f["estado_comanda"]].append({
-                "id":         f["id_pedido"],
-                "mesa":       f["numero_mesa"],
-                "mozo":       f["mozo"],
-                "fecha":      f["fecha_hora"],
-                "detalle":    f["detalle_texto"],
-                "estado":     f["estado_comanda"],
-            })
-        return agrupados
-    finally:
-        conn.close()
-
-
-def _sync_estado_supabase(id_pedido: int, estado: str) -> None:
+def _recuperar_pedido_supabase(id_pedido: int, conn: sqlite3.Connection) -> bool:
+    """Intenta leer un pedido desde Supabase e insertarlo en SQLite."""
     try:
         from supabase import create_client
         from cloud_config import supabase_url, get_secret
         url = supabase_url()
         key = get_secret("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_ANON_KEY")
-        if url and key:
-            create_client(url, key).table("pedidos_cabecera").update(
-                {"estado_comanda": estado}
-            ).eq("id_pedido", id_pedido).execute()
+        if not url or not key:
+            return False
+        sb = create_client(url, key)
+
+        header = sb.table("pedidos_cabecera").select("*").eq("id_pedido", id_pedido).execute()
+        if not header.data:
+            return False
+        h = header.data[0]
+
+        conn.execute("""
+            INSERT OR IGNORE INTO pedidos_cabecera (id_pedido, id_mesa, id_usuario, estado_comanda, fecha_hora)
+            VALUES (?, ?, ?, ?, ?)
+        """, (h["id_pedido"], h["id_mesa"], h.get("id_usuario"),
+              h.get("estado_comanda", "pendiente"), h.get("fecha_hora", "")))
+
+        det = sb.table("pedido_detalle").select("*").eq("id_pedido", id_pedido).execute()
+        for d in det.data:
+            conn.execute("""
+                INSERT OR IGNORE INTO pedido_detalle (id_pedido, id_producto, cantidad, observaciones, precio_unitario_facturado)
+                VALUES (?, ?, ?, ?, ?)
+            """, (d["id_pedido"], d["id_producto"], d["cantidad"],
+                  d.get("observaciones", ""), float(d.get("precio_unitario_facturado", 0))))
+        return True
     except Exception:
-        pass
+        return False
+
+
+# ── Transacción crítica: confirmar pedido y descontar stock ────────────
+
+def confirmar_pedido_cocina(id_pedido: int) -> dict:
+    conn = get_connection_direct()
+    try:
+        conn.execute("BEGIN TRANSACTION" if config.DB_ENGINE == "sqlite" else "BEGIN")
+        p = ph()
+        cur = conn.execute(
+            f"SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = {p}",
+            (id_pedido,)
+        )
+        row = cur.fetchone()
+        if row is None:
+            conn.rollback()
+            return {"ok": False, "error": f"Pedido {id_pedido} no existe."}
+        estado = row["estado_comanda"] if hasattr(row, "__getitem__") else row[0]
+        if estado != "en_cocina":
+            conn.rollback()
+            return {"ok": False, "error": f"Estado inv\u00e1lido: '{estado}'. Se esperaba 'en_cocina'."}
+        cur = conn.execute(
+            f"SELECT pd.id_producto, pd.cantidad, pm.nombre"
+            f" FROM pedido_detalle pd"
+            f" JOIN productos_menu pm ON pm.id_producto = pd.id_producto"
+            f" WHERE pd.id_pedido = {p}",
+            (id_pedido,)
+        )
+        detalle = cur.fetchall()
+        for item in detalle:
+            cur2 = conn.execute(
+                f"SELECT id_insumo, cantidad_a_descontar FROM recetas_escandallo WHERE id_producto = {p}",
+                (item["id_producto"],)
+            )
+            for receta in cur2.fetchall():
+                qty = receta["cantidad_a_descontar"] * item["cantidad"]
+                conn.execute(
+                    f"UPDATE insumos SET stock_actual = stock_actual - {p} WHERE id_insumo = {p}",
+                    (qty, receta["id_insumo"])
+                )
+        conn.execute(
+            f"UPDATE pedidos_cabecera SET estado_comanda = 'listo' WHERE id_pedido = {p}",
+            (id_pedido,)
+        )
+        conn.commit()
+        cur = conn.execute(
+            "SELECT nombre, stock_actual, stock_minimo FROM insumos WHERE stock_actual <= stock_minimo"
+        )
+        advertencias = [
+            f"\u26a0\ufe0f  Stock bajo: '{r['nombre']}' ({r['stock_actual']:.0f}/{r['stock_minimo']:.0f})"
+            for r in cur.fetchall()
+        ]
+        return {"ok": True, "advertencias": advertencias}
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
 
 
 def avanzar_estado(id_pedido: int, estado_actual: str) -> dict:
-    """
-    Avanza el estado de un pedido:
-        pendiente -> en_cocina
-        en_cocina -> ejecuta confirmar_pedido_cocina (transacción con stock)
-    """
-    conn = get_connection()
+    transiciones = {
+        "pendiente": "en_cocina",
+        "en_cocina": "listo",
+    }
+    nuevo_estado = transiciones.get(estado_actual)
+    if not nuevo_estado:
+        return {"ok": False, "error": f"Estado '{estado_actual}' no tiene transici\u00f3n definida."}
+    if nuevo_estado == "listo":
+        return confirmar_pedido_cocina(id_pedido)
+    conn = get_connection_direct()
     try:
-        if estado_actual == "pendiente":
-            conn.execute("BEGIN IMMEDIATE")
-            conn.execute("""
-                UPDATE pedidos_cabecera
-                SET estado_comanda = 'en_cocina'
-                WHERE id_pedido = ?
-            """, (id_pedido,))
-            conn.commit()
-            _sync_estado_supabase(id_pedido, "en_cocina")
-            return {"ok": True}
-        elif estado_actual == "en_cocina":
-            res = confirmar_pedido_cocina(id_pedido)
-            if res.get("ok"):
-                _sync_estado_supabase(id_pedido, "listo")
-            return res
-        return {"ok": False, "error": "Estado no manejado."}
-    finally:
-        conn.close()
-
-
-def marcar_pedido_entregado(id_pedido: int) -> dict:
-    """Marca un pedido listo como entregado por el mozo."""
-    conn = get_connection()
-    try:
-        cur = conn.execute("""
-            UPDATE pedidos_cabecera
-               SET estado_comanda = 'entregado'
-             WHERE id_pedido = ?
-               AND estado_comanda = 'listo'
-        """, (id_pedido,))
+        p = ph()
+        cur = conn.execute(
+            f"SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = {p}",
+            (id_pedido,)
+        )
+        row = cur.fetchone()
+        if row is None:
+            return {"ok": False, "error": f"Pedido {id_pedido} no existe."}
+        estado_db = row["estado_comanda"] if hasattr(row, "__getitem__") else row[0]
+        if estado_db != estado_actual:
+            return {"ok": False, "error": f"Estado en DB es '{estado_db}', se esperaba '{estado_actual}'."}
+        conn.execute(
+            f"UPDATE pedidos_cabecera SET estado_comanda = {p} WHERE id_pedido = {p}",
+            (nuevo_estado, id_pedido)
+        )
         conn.commit()
-        if cur.rowcount == 0:
-            return {"ok": False, "error": "El pedido no esta listo o no existe."}
-        _sync_estado_supabase(id_pedido, "entregado")
-        return {"ok": True}
-    finally:
-        conn.close()
-
-
-def registrar_auditoria(modulo: str, accion: str, detalle: str = "") -> None:
-    """Registra una accion operativa sin interrumpir la pantalla si falla."""
-    conn = get_connection()
-    try:
-        conn.execute("""
-            INSERT INTO auditoria_eventos (modulo, accion, detalle)
-            VALUES (?, ?, ?)
-        """, (modulo, accion, detalle))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def registrar_auditoria_operativa(usuario: str, accion: str, detalle: str = "",
-                                  metadata_json: str = "{}") -> None:
-    """Registra una accion critica en logs_operaciones para auditoria de caja.
-    Acciones tipicas: eliminacion_item, cambio_precio, apertura_forzada,
-    mesa_reabierta, cierre_anticipado, anulacion_factura."""
-    conn = get_connection()
-    try:
-        conn.execute("""
-            INSERT INTO logs_operaciones (usuario, accion, detalle, metadata_json)
-            VALUES (?, ?, ?, ?)
-        """, (usuario, accion, detalle, metadata_json))
-        conn.commit()
-    except Exception:
-        pass
-    finally:
+        return {"ok": True, "advertencias": []}
+    except Exception as e:
         try:
-            conn.close()
+            conn.rollback()
         except Exception:
             pass
-
-
-def logs_operaciones_recientes(limit: int = 100) -> list[dict]:
-    """Retorna los ultimos logs operativos para el panel de auditoria."""
-    conn = get_connection()
-    try:
-        rows = conn.execute("""
-            SELECT id_log, usuario, accion, detalle, created_at
-            FROM logs_operaciones
-            ORDER BY id_log DESC
-            LIMIT ?
-        """, (limit,)).fetchall()
-        return [dict(r) for r in rows]
-    except Exception:
-        return []
+        return {"ok": False, "error": str(e)}
     finally:
         conn.close()
 
 
-def _get_unidad(id_insumo):
-    conn = get_connection()
+def obtener_pedidos_por_estado() -> dict[str, list[dict]]:
+    grupos: dict[str, list[dict]] = {"pendiente": [], "en_cocina": [], "listo": []}
+    conn = get_connection_direct()
     try:
-        row = conn.execute("SELECT unidad_medida FROM insumos WHERE id_insumo = ?", (id_insumo,)).fetchone()
-        return row["unidad_medida"] if row else ""
+        agg = str_agg("pm.nombre || ' x' || pd.cantidad")
+        resultado = conn.execute(f"""
+            SELECT
+                pc.id_pedido       AS id,
+                pc.fecha_hora      AS fecha,
+                pc.estado_comanda  AS estado,
+                m.numero_mesa      AS mesa,
+                u.nombre || ' ' || u.apellido AS mozo,
+                {agg}              AS detalle
+            FROM pedidos_cabecera pc
+            JOIN mesas m           ON m.id_mesa      = pc.id_mesa
+            JOIN usuarios u        ON u.id_usuario   = pc.id_usuario
+            JOIN pedido_detalle pd ON pd.id_pedido   = pc.id_pedido
+            JOIN productos_menu pm ON pm.id_producto = pd.id_producto
+            WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo')
+              AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
+            GROUP BY pc.id_pedido, pc.fecha_hora, pc.estado_comanda,
+                     m.numero_mesa, u.nombre, u.apellido
+            ORDER BY pc.fecha_hora ASC
+        """).fetchall()
     finally:
         conn.close()
-
-
-# ── Seed de pedidos de prueba para la demo ────────────────────────────
-
-def seed_menu_premium(conn: sqlite3.Connection | None = None) -> None:
-    """Inserta los 30 platos premium si la tabla productos_menu esta vacia."""
-    own_connection = conn is None
-    if conn is None:
-        try:
-            conn = get_connection()
-        except Exception:
-            return
-    try:
-        conn.execute("SELECT COUNT(*) FROM productos_menu").fetchone()
-    except Exception:
-        if own_connection:
-            conn.close()
-        init_db()
-        try:
-            conn = get_connection()
-            own_connection = True
-        except Exception:
-            return
-    try:
-        cur = conn.execute("SELECT COUNT(*) AS cnt FROM productos_menu")
-        if cur.fetchone()["cnt"] > 0:
-            if own_connection:
-                conn.close()
-            return
-    except Exception:
-        if own_connection:
-            conn.close()
-        return
-    platos = [
-        ("Provolone con mermelada de tomates y pesto, con escabeches y focaccia", 12000, "Entradas"),
-        ("Pera asada con queso azul, nueces y miel sobre verdes", 12000, "Entradas"),
-        ("Dúo empanadas carne cortada a cuchillo / humita y mozzarella", 12000, "Entradas"),
-        ("Carpaccio de lomo curado, crema de parmesano, alcaparras, pistacho tostados, focaccia y hojas verdes fritas", 12000, "Entradas"),
-        ("Tabla charcutería de elaboración propia, quesos, escabeches, alioli de ajo", 12000, "Entradas"),
-        ("Rotolo di tata (de cabrito y verduras)", 15000, "Pastas"),
-        ("Lasaña de pollo y espinaca al forno", 15000, "Pastas"),
-        ("Creps de espinaca y parmesano con finas hierbas", 15000, "Pastas"),
-        ("Cintas anchas en tinta de sepia con crema de mariscos", 15000, "Pastas"),
-        ("Ñoquis boniato con manteca y almendras tostadas", 15000, "Pastas"),
-        ("Cintas finas al huevo con fileto y estofado", 15000, "Pastas"),
-        ("Cintas finas al huevo con crema de hongos de pino", 15000, "Pastas"),
-        ("Cintas finas al huevo a la carbonara", 15000, "Pastas"),
-        ("Ojo de bife con aligot de papa y salsa criolla", 22000, "Carnes"),
-        ("Ojo de bife con salsa patrón", 22000, "Carnes"),
-        ("Ojo de bife con salsa de hongos", 22000, "Carnes"),
-        ("Lomo en demiglase con terrina de papa y vegetales glaseados", 22000, "Carnes"),
-        ("Bondiola ahumada en reducción de miel y jengibre con batatas rotas", 22000, "Carnes"),
-        ("Milanesa de entrecot con fideos al huevo con crema de hierbas", 22000, "Carnes"),
-        ("Salmón rosado con manteca de lima y azafrán acompañado de ensalada tibia", 18000, "Pescados"),
-        ("Trucha con alcaparras, manteca, naranja y miel, acompañado de papines y verduras salteadas", 18000, "Pescados"),
-        ("Pacú con papas rústicas y hojas verdes acompañados de salsa criolla", 18000, "Pescados"),
-        ("Locro criollo con verdeo picante", 13000, "Comidas Criollas"),
-        ("Humita", 13000, "Comidas Criollas"),
-        ("Guiso de lentejas", 13000, "Comidas Criollas"),
-        ("Tiramisú", 8000, "Postres"),
-        ("Lingote de chocolate", 8000, "Postres"),
-        ("Flan tradicional", 8000, "Postres"),
-        ("Panna cotta con frutos rojos", 8000, "Postres"),
-        ("Tarta vasca", 8000, "Postres"),
-    ]
-    for nombre, precio, categoria in platos:
-        try:
-            conn.execute("INSERT OR IGNORE INTO productos_menu (nombre, precio_venta, categoria, activo) VALUES (?, ?, ?, 1)",
-                         (nombre, precio, categoria))
-        except Exception:
-            pass
-    if own_connection:
-        conn.commit()
-        conn.close()
+    for r in resultado:
+        estado = r["estado"]
+        if estado in grupos:
+            grupos[estado].append(dict(r))
+    return grupos
 
 
 def seed_pedidos_demo() -> None:
-    """Crea pedidos de ejemplo para probar la pantalla KDS."""
-    conn = get_connection()
-    try:
-        existing = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM pedidos_cabecera"
-        ).fetchone()["cnt"]
-        if existing > 0:
-            return  # ya hay datos
-
-        from datetime import datetime, timedelta
-
-        ahora = datetime.now()
-
-        # Pedido 1 — pendiente (recién llegado)
-        conn.execute("""
-            INSERT INTO pedidos_cabecera (id_mesa, id_usuario, fecha_hora, estado_comanda)
-            VALUES (?, ?, ?, 'pendiente')
-        """, (1, 1, (ahora - timedelta(minutes=3)).strftime("%Y-%m-%d %H:%M:%S")))
-        pid1 = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        _insert_detalle(conn, pid1, 1, 2, "sin cebolla")
-        _insert_detalle(conn, pid1, 2, 1, "")
-        conn.execute("UPDATE mesas SET estado='ocupada' WHERE id_mesa=1")
-
-        # Pedido 2 — pendiente (hace 12 min, alerta amarilla)
-        conn.execute("""
-            INSERT INTO pedidos_cabecera (id_mesa, id_usuario, fecha_hora, estado_comanda)
-            VALUES (?, ?, ?, 'pendiente')
-        """, (2, 1, (ahora - timedelta(minutes=12)).strftime("%Y-%m-%d %H:%M:%S")))
-        pid2 = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        _insert_detalle(conn, pid2, 3, 1, "punto jugoso")
-        _insert_detalle(conn, pid2, 5, 2, "")
-        conn.execute("UPDATE mesas SET estado='ocupada' WHERE id_mesa=2")
-
-        # Pedido 3 — en cocina
-        conn.execute("""
-            INSERT INTO pedidos_cabecera (id_mesa, id_usuario, fecha_hora, estado_comanda)
-            VALUES (?, ?, ?, 'en_cocina')
-        """, (3, 1, (ahora - timedelta(minutes=20)).strftime("%Y-%m-%d %H:%M:%S")))
-        pid3 = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        _insert_detalle(conn, pid3, 1, 1, "con queso extra")
-        _insert_detalle(conn, pid3, 2, 1, "")
-        _insert_detalle(conn, pid3, 4, 1, "tinto de la casa")
-        conn.execute("UPDATE mesas SET estado='ocupada' WHERE id_mesa=3")
-
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def _insert_detalle(
-    conn: sqlite3.Connection,
-    id_pedido: int,
-    id_producto: int,
-    cantidad: int,
-    observaciones: str,
-) -> None:
-    precio = conn.execute(
-        "SELECT precio_venta FROM productos_menu WHERE id_producto = ?",
-        (id_producto,),
-    ).fetchone()
-    if _column_exists(conn, "pedido_detalle", "precio_unitario_facturado"):
-        conn.execute("""
-            INSERT INTO pedido_detalle
-                (id_pedido, id_producto, cantidad, observaciones, precio_unitario_facturado)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            id_pedido,
-            id_producto,
-            cantidad,
-            observaciones,
-            precio["precio_venta"] if precio else 0,
-        ))
-    else:
-        conn.execute("""
-            INSERT INTO pedido_detalle (id_pedido, id_producto, cantidad, observaciones)
-            VALUES (?, ?, ?, ?)
-        """, (id_pedido, id_producto, cantidad, observaciones))
+    pass
