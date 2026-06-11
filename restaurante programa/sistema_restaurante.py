@@ -954,6 +954,28 @@ def get_mozos() -> list[dict]:
     return unicos
 
 
+def asegurar_mozo_operativo() -> None:
+    """Garantiza que el terminal de mozo tenga al menos un usuario activo."""
+    try:
+        existente = one("""
+            SELECT id_usuario, COALESCE(activo, 1) AS activo
+            FROM usuarios
+            WHERE TRIM(LOWER(rol)) = 'mozo'
+            ORDER BY COALESCE(activo, 1) DESC, id_usuario
+            LIMIT 1
+        """)
+        if existente:
+            if int(existente.get("activo") or 0) != 1:
+                execute("UPDATE usuarios SET activo = 1 WHERE id_usuario = ?", (existente["id_usuario"],))
+            return
+        execute("""
+            INSERT INTO usuarios (nombre, apellido, rol, mail, contrasena, pin, activo)
+            VALUES (?, ?, 'mozo', ?, ?, '1234', 1)
+        """, ("Carlos", "Garcia", "mozo.carlos@local.invalid", hash_password("1234")))
+    except Exception:
+        pass
+
+
 def get_personal(rol: str | None = None, active_only: bool = False) -> list[dict]:
     filtros = []
     params: list = []
@@ -1016,6 +1038,8 @@ def _get_supabase():
 
 
 def _sync_pedido_a_supabase(id_pedido: int, id_mesa: int, id_usuario: int, items: list[dict]) -> None:
+    if using_postgres():
+        return
     sb = _get_supabase()
     if not sb:
         return
@@ -1157,50 +1181,48 @@ def _pedidos_desde_supabase(estados: tuple) -> list[dict] | None:
     if not sb:
         return None
     try:
+        cutoff = active_order_cutoff()
         peds = sb.table("pedidos_cabecera").select(
             "id_pedido, fecha_hora, estado_comanda, id_mesa, id_usuario"
-        ).in_("estado_comanda", list(estados)).order("fecha_hora").execute()
+        ).in_("estado_comanda", list(estados)).gte("fecha_hora", cutoff).order("fecha_hora").execute()
         if not peds.data:
             return []
-        id_mesas = list(set(p["id_mesa"] for p in peds.data))
-        id_usuarios = list(set(p["id_usuario"] for p in peds.data))
-        mesas_map = {}
-        for mid in id_mesas:
-            try:
-                r = sb.table("mesas").select("numero_mesa").eq("id_mesa", mid).execute()
-                if r.data:
-                    mesas_map[mid] = r.data[0]["numero_mesa"]
-            except Exception:
-                pass
-        users_map = {}
-        for uid in id_usuarios:
-            try:
-                r = sb.table("usuarios").select("nombre, apellido").eq("id_usuario", uid).execute()
-                if r.data:
-                    users_map[uid] = f"{r.data[0]['nombre']} {r.data[0]['apellido']}"
-            except Exception:
-                pass
+        id_mesas = sorted({p["id_mesa"] for p in peds.data if p.get("id_mesa") is not None})
+        id_usuarios = sorted({p["id_usuario"] for p in peds.data if p.get("id_usuario") is not None})
+        mesas_map = {
+            r["id_mesa"]: r["numero_mesa"]
+            for r in (sb.table("mesas").select("id_mesa, numero_mesa").in_("id_mesa", id_mesas).execute().data or [])
+        } if id_mesas else {}
+        users_map = {
+            r["id_usuario"]: f"{r.get('nombre', '')} {r.get('apellido', '')}".strip()
+            for r in (sb.table("usuarios").select("id_usuario, nombre, apellido").in_("id_usuario", id_usuarios).execute().data or [])
+        } if id_usuarios else {}
         ids = [p["id_pedido"] for p in peds.data]
-        dets = sb.table("pedido_detalle").select(
-            "id_pedido, id_producto, cantidad, observaciones"
-        ).in_("id_pedido", ids).execute()
-        id_productos = list(set(d["id_producto"] for d in dets.data))
-        prod_map = {}
-        for pid in id_productos:
-            try:
-                r = sb.table("productos_menu").select("nombre, categoria").eq("id_producto", pid).execute()
-                if r.data:
-                    prod_map[pid] = r.data[0]
-            except Exception:
-                pass
+        try:
+            dets = sb.table("pedido_detalle").select(
+                "id_pedido, id_producto, cantidad, observaciones, cantidad_anulada"
+            ).in_("id_pedido", ids).execute()
+        except Exception:
+            dets = sb.table("pedido_detalle").select(
+                "id_pedido, id_producto, cantidad, observaciones"
+            ).in_("id_pedido", ids).execute()
+        detalles_data = dets.data or []
+        id_productos = sorted({d["id_producto"] for d in detalles_data if d.get("id_producto") is not None})
+        prod_map = {
+            r["id_producto"]: r
+            for r in (sb.table("productos_menu").select("id_producto, nombre, categoria").in_("id_producto", id_productos).execute().data or [])
+        } if id_productos else {}
         det_por_pedido: dict[int, list[dict]] = {}
-        for d in dets.data:
-            det_por_pedido.setdefault(d["id_pedido"], []).append(d)
+        for d in detalles_data:
+            cantidad = int(d.get("cantidad") or 0) - int(d.get("cantidad_anulada") or 0)
+            if cantidad <= 0:
+                continue
+            detalle = dict(d)
+            detalle["cantidad"] = cantidad
+            det_por_pedido.setdefault(d["id_pedido"], []).append(detalle)
         result = []
         for p in peds.data:
             items_raw = det_por_pedido.get(p["id_pedido"], [])
-            if not items_raw:
-                continue
             items_out = []
             for i in items_raw:
                 prod_info = prod_map.get(i["id_producto"], {})
@@ -1209,6 +1231,13 @@ def _pedidos_desde_supabase(estados: tuple) -> list[dict] | None:
                     "cantidad": i["cantidad"],
                     "categoria": prod_info.get("categoria", ""),
                     "observaciones": i.get("observaciones", ""),
+                })
+            if not items_out:
+                items_out.append({
+                    "nombre": "Pedido sin detalle cargado",
+                    "cantidad": 1,
+                    "categoria": "",
+                    "observaciones": "Revisar sincronizacion",
                 })
             result.append({
                 "id_pedido": p["id_pedido"],
@@ -1269,12 +1298,32 @@ def pedidos_cocina_detallados() -> list[dict]:
         if pedido.get("id_pedido") is None:
             continue
         pedido["items"] = por_pedido.get(int(pedido["id_pedido"]), [])
-        if pedido["items"]:
-            armados.append(pedido)
+        if not pedido["items"]:
+            pedido["items"] = [{
+                "nombre": "Pedido sin detalle cargado",
+                "cantidad": 1,
+                "categoria": "",
+                "observaciones": "Revisar sincronizacion",
+            }]
+        armados.append(pedido)
     return armados
 
 
 def resumen_chef() -> list[dict]:
+    supabase_data = _pedidos_desde_supabase(("pendiente", "en_cocina"))
+    if supabase_data is not None:
+        acumulado: dict[str, int] = {}
+        for pedido in supabase_data:
+            for item in pedido.get("items", []):
+                nombre = str(item.get("nombre") or "").strip()
+                if not nombre or nombre == "Pedido sin detalle cargado":
+                    continue
+                acumulado[nombre] = acumulado.get(nombre, 0) + int(item.get("cantidad") or 0)
+        return [
+            {"nombre": nombre, "cantidad": cantidad}
+            for nombre, cantidad in sorted(acumulado.items(), key=lambda kv: (-kv[1], kv[0]))[:12]
+        ]
+
     cutoff = active_order_cutoff()
     return rows("""
         SELECT pm.nombre,
@@ -1845,31 +1894,46 @@ def page_cocina() -> None:
     listos     = [p for p in pedidos if p["estado_comanda"] == "listo"]
 
     # ── Métricas ──────────────────────────────────────────────────
-    max_pend = elapsed_minutes(pendientes[0]["fecha_hora"]) if pendientes else 0
+    pedidos_en_produccion = pendientes + en_cocina
+    max_espera = max((elapsed_minutes(p["fecha_hora"]) for p in pedidos_en_produccion), default=0)
+    resumen_activo: dict[str, int] = {}
+    for pedido in pedidos_en_produccion:
+        for item in pedido.get("items", []):
+            nombre = str(item.get("nombre") or "").strip()
+            if not nombre or nombre == "Pedido sin detalle cargado":
+                continue
+            resumen_activo[nombre] = resumen_activo.get(nombre, 0) + int(item.get("cantidad") or 0)
+    resumen_chef_activo = [
+        {"nombre": nombre, "cantidad": cantidad}
+        for nombre, cantidad in sorted(resumen_activo.items(), key=lambda kv: (-kv[1], kv[0]))[:12]
+    ]
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Pendientes",      len(pendientes))
     m2.metric("En preparación",  len(en_cocina))
     m3.metric("Listos",          len(listos))
     try:
-        platos_activos = sum(int(i["cantidad"]) for p in pendientes + en_cocina for i in p["items"])
+        platos_activos = sum(int(i["cantidad"]) for p in pedidos_en_produccion for i in p["items"])
     except Exception:
         platos_activos = 0
     m4.metric("Platos activos",  platos_activos)
-    m5.metric("Mayor espera", f"{max_pend}min" if max_pend else "—", delta_color="inverse" if max_pend > 15 else "off")
+    m5.metric(
+        "Mayor espera",
+        elapsed_label(max_espera) if max_espera else "—",
+        delta_color="inverse" if max_espera > 15 else "off",
+    )
 
   # ── Chef view + controles ─────────────────────────────────────
     top_left, top_right = st.columns([2.2, 1])
     with top_left:
-        resumen = resumen_chef()
-        st.markdown("<div class='kds-summary'><div class='kds-summary-title'>Chef view — total pendiente</div>", unsafe_allow_html=True)
-        if resumen:
-            for item in resumen:
+        st.markdown("<div class='kds-summary'><div class='kds-summary-title'>Chef view — producción activa</div>", unsafe_allow_html=True)
+        if resumen_chef_activo:
+            for item in resumen_chef_activo:
                 st.markdown(
                     f"<div class='kds-summary-line'><span>{escape(item['nombre'])}</span><b>{int(item['cantidad'])}</b></div>",
                     unsafe_allow_html=True,
                 )
         else:
-            st.markdown("<span class='muted'>Sin platos pendientes.</span>", unsafe_allow_html=True)
+            st.markdown("<span class='muted'>Sin producción activa.</span>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
     with top_right:
         btn_c1, btn_c2 = st.columns(2)
@@ -1914,9 +1978,19 @@ def page_cocina() -> None:
                 format_func=lambda x: mesa_opts[x],
                 key="cocina_mesa_sel",
             )
-            categorias = [("cocina", "Cocina"), ("bebidas", "Bebidas"), ("postres", "Postres")]
-            cat_tabs = st.tabs([lbl for _, lbl in categorias])
-            for ctab, (cat, _) in zip(cat_tabs, categorias):
+            from components.categorias import CATEGORIAS_MENU, CATEGORIAS_LEGACY
+            categorias_preferidas = [
+                cat for cat in CATEGORIAS_MENU + CATEGORIAS_LEGACY
+                if any(p["categoria"] == cat for p in menu_all)
+            ]
+            categorias_extra = sorted({
+                str(p["categoria"])
+                for p in menu_all
+                if p["categoria"] not in set(CATEGORIAS_MENU + CATEGORIAS_LEGACY)
+            })
+            categorias = categorias_preferidas + categorias_extra
+            cat_tabs = st.tabs(categorias) if categorias else []
+            for ctab, cat in zip(cat_tabs, categorias):
                 with ctab:
                     prods = [p for p in menu_all if p["categoria"] == cat]
                     if not prods:
@@ -2059,21 +2133,22 @@ def page_cocina() -> None:
         if minutes >= 10: return "t-warn"
         return "t-ok"
 
-    def _card_html(pedido: dict) -> str:
+    def _card_html(pedido: dict, alertar_demora: bool = True) -> str:
         minutes = elapsed_minutes(pedido["fecha_hora"])
-        tc = _timer_class(minutes)
+        tc = _timer_class(minutes) if alertar_demora else "t-ok"
         dishes = ""
         for it in pedido["items"]:
             nota = escape(it.get("observaciones") or "")
             nota_html = f"<span class='kb-note'>{nota}</span>" if nota else ""
             dishes += f"<div class='kb-dish'><b>{int(it['cantidad'])}×</b> {escape(it['nombre'])}{nota_html}</div>"
-        warn_badge = '<span style="display:inline-block;background:#dc3545;color:white;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.7rem;font-weight:800;margin-top:0.3rem">⚠ DEMORADO</span>' if minutes > 15 else ""
+        warn_badge = '<span style="display:inline-block;background:#dc3545;color:white;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.7rem;font-weight:800;margin-top:0.3rem">⚠ DEMORADO</span>' if alertar_demora and minutes > 15 else ""
+        timer_label = elapsed_label(minutes) if alertar_demora else f"Listo · {elapsed_label(minutes)}"
         return (
             f"<div class='kb-card {tc}'>"
             f"<div class='kb-card-head'>"
             f"<div><div class='kb-card-id'>#{pedido['id_pedido']}</div>"
             f"<div class='kb-card-mesa'>Mesa {pedido['numero_mesa']}</div></div>"
-            f"<span class='kb-timer'>{elapsed_label(minutes)}{warn_badge}</span>"
+            f"<span class='kb-timer'>{timer_label}{warn_badge}</span>"
             f"</div>"
             f"{dishes}"
             f"<div class='kb-mozo'> 👤  {escape(pedido['mozo'])}</div>"
@@ -2147,7 +2222,7 @@ def page_cocina() -> None:
 
     # ── Columna LISTO ─────────────────────────────────────────────
     with col_list:
-        cards_html = "".join(_card_html(p) for p in listos) if listos else "<div class='kb-empty'>Nada listo todavía</div>"
+        cards_html = "".join(_card_html(p, alertar_demora=False) for p in listos) if listos else "<div class='kb-empty'>Nada listo todavía</div>"
         st.markdown(
             f"<div class='kb-col col-list'>"
             f"<div class='kb-col-head'><span class='kb-col-title'>✅ Listo para servir</span>"
@@ -2169,7 +2244,7 @@ def page_caja() -> None:
         c1.metric("Caja", f"#{caja['id_caja']}")
         c2.metric("Cajero", caja["cajero"])
         c3.metric("Apertura", money(caja["monto_apertura"]))
-        c4.metric("Ventas", money(caja["monto_ventas"]))
+        c4.metric("Ventas", money(caja.get("monto_ventas", 0)))
     else:
         st.warning("No hay caja abierta. Abrila antes de cobrar.")
         monto = st.number_input("Monto de apertura", min_value=0.0, step=100.0)
@@ -2844,6 +2919,23 @@ def page_usuarios() -> None:
 
 
 def pedidos_listos_mozo() -> list[dict]:
+    supabase_data = _pedidos_desde_supabase(("listo",))
+    if supabase_data is not None:
+        listos = []
+        for pedido in supabase_data:
+            detalle = ", ".join(
+                f"{int(item.get('cantidad') or 0)}x {item.get('nombre', '')}"
+                for item in pedido.get("items", [])
+                if item.get("nombre")
+            )
+            listos.append({
+                "id_pedido": pedido["id_pedido"],
+                "numero_mesa": pedido["numero_mesa"],
+                "fecha_hora": pedido["fecha_hora"],
+                "detalle": detalle,
+            })
+        return listos
+
     cutoff = active_order_cutoff()
     return rows("""
         SELECT pc.id_pedido,
@@ -2931,6 +3023,9 @@ def page_mozo() -> None:
     st.session_state.mozo_listos_prev = _cant_listos
 
     mozos = get_mozos()
+    if not mozos:
+        asegurar_mozo_operativo()
+        mozos = get_mozos()
     operativo = mozo_operativo()
     if not mozos:
         title("Terminal de mozo", "Primero carga personal con rol mozo.")

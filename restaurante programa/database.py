@@ -598,6 +598,11 @@ def get_connection(raise_on_error: bool = False):
         return error_connection(fallback_msg=f"Error de conexion SQLite: {exc}")
 
 
+def get_connection_direct():
+    """Alias compatible para modulos que aun usan la conexion directa."""
+    return get_connection()
+
+
 def error_connection(*, fallback_msg: str = "Error de conexion") -> _FallbackConnection:
     """Retorna una conexion de fallback que falla silenciosamente."""
     import warnings
@@ -1228,11 +1233,19 @@ def _ensure_operational_schema(conn: sqlite3.Connection, *, seed_premium_menu: b
     conn.execute("UPDATE usuarios SET pin = '2222' WHERE rol = 'cocina' AND (pin IS NULL OR pin = '0000')")
     conn.execute("UPDATE usuarios SET pin = '3333' WHERE rol = 'caja' AND (pin IS NULL OR pin = '0000')")
     conn.execute("UPDATE usuarios SET pin = '9999' WHERE rol = 'administrador' AND (pin IS NULL OR pin = '0000')")
-    conn.execute("""
-        INSERT INTO usuarios (nombre, apellido, rol, pin, activo)
-        SELECT 'Lucía', 'Pérez', 'caja', '3333', 1
-        WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE rol = 'caja')
-    """)
+    for nombre, apellido, rol, pin in [
+        ("Carlos", "Garcia", "mozo", "1234"),
+        ("Maria", "Lopez", "cocina", "2222"),
+        ("Lucia", "Perez", "caja", "3333"),
+        ("Admin", "Root", "administrador", "9999"),
+    ]:
+        conn.execute("""
+            INSERT INTO usuarios (nombre, apellido, rol, pin, activo)
+            SELECT ?, ?, ?, ?, 1
+            WHERE NOT EXISTS (
+                SELECT 1 FROM usuarios WHERE TRIM(LOWER(rol)) = TRIM(LOWER(?))
+            )
+        """, (nombre, apellido, rol, pin, rol))
 
     conn.execute("INSERT OR IGNORE INTO depositos (nombre_deposito) VALUES ('Deposito principal')")
     conn.execute("""
