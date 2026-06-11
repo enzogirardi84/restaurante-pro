@@ -8,8 +8,8 @@ _legacy_file = _legacy_dir / "sistema_restaurante.py"
 os.chdir(str(_legacy_dir))
 sys.path.insert(0, str(_legacy_dir))
 
-_f = open(_legacy_file, encoding="utf-8")
-_c = _f.read()
-_f.close()
-_code = compile(_c, str(_legacy_file), "exec")
-exec(_code, {"__name__": "__main__", "__file__": str(_legacy_file)})
+import importlib.util as _iu
+_spec = _iu.spec_from_file_location("__main__", str(_legacy_file))
+_mod = _iu.module_from_spec(_spec)
+_sys_mod = sys.modules.setdefault("__main__", _mod)
+_spec.loader.exec_module(_mod)
