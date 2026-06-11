@@ -830,26 +830,8 @@ def sidebar() -> None:
         st.rerun()
 
 
-def get_menu(active_only: bool = True) -> list[dict]:
-    """Trae productos_menu desde Supabase si está disponible, sino desde SQLite local."""
-    try:
-        from supabase import create_client
-        from cloud_config import supabase_url, get_secret
-        url = supabase_url()
-        key = get_secret("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_ANON_KEY")
-        if url and key:
-            sb = create_client(url, key)
-            query = sb.table("productos_menu").select(
-                "id_producto, nombre, precio_venta, categoria, activo, precio_original, precio_final, descuento_aplicado"
-            )
-            if active_only:
-                query = query.eq("activo", 1)
-            resp = query.order("categoria").order("nombre").execute()
-            if resp.data:
-                return resp.data
-    except Exception:
-        pass
-
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_menu_local_cached(active_only: bool, promo_sig: tuple) -> list[dict]:
     where = "WHERE activo = 1" if active_only else ""
     productos = rows(f"""
         SELECT id_producto, nombre, precio_venta, categoria, activo
@@ -870,17 +852,56 @@ def get_menu(active_only: bool = True) -> list[dict]:
         """)
         _total = _despues[0]["cnt"] if _despues else 0
         if not productos:
-            st.warning(f"No se pudieron cargar los platos. Total en DB: {_total} (antes: {_antes[0]['cnt'] if _antes else 0})", icon="⚠")
+            return []
+    promo_activa, promo_categoria, promo_umbral, promo_descuento = promo_sig
     for producto in productos:
         try:
             precio_original = float(producto["precio_venta"]) if producto["precio_venta"] is not None else 0.0
         except (TypeError, ValueError):
             precio_original = 0.0
-        precio_final = calcular_precio_promocion(producto["categoria"], precio_original)
+        if promo_activa and producto["categoria"] == promo_categoria and precio_original > promo_umbral:
+            precio_final = round(precio_original * (1 - promo_descuento))
+        else:
+            precio_final = precio_original
         producto["precio_original"] = precio_original
         producto["precio_final"] = precio_final
         producto["descuento_aplicado"] = max(precio_original - precio_final, 0)
     return productos
+
+
+def get_menu(active_only: bool = True) -> list[dict]:
+    """Trae productos_menu desde la base local/pool; Supabase REST queda como fallback."""
+    promo = promo_config()
+    promo_sig = (
+        bool(promo["activa"]),
+        str(promo["categoria"]),
+        float(promo["umbral"]),
+        float(promo["descuento"]),
+    )
+    productos = _get_menu_local_cached(active_only, promo_sig)
+    if productos:
+        return productos
+
+    try:
+        from supabase import create_client
+        from cloud_config import supabase_url, get_secret
+        url = supabase_url()
+        key = get_secret("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_ANON_KEY")
+        if url and key:
+            sb = create_client(url, key)
+            query = sb.table("productos_menu").select(
+                "id_producto, nombre, precio_venta, categoria, activo, precio_original, precio_final, descuento_aplicado"
+            )
+            if active_only:
+                query = query.eq("activo", 1)
+            resp = query.order("categoria").order("nombre").execute()
+            if resp.data:
+                return resp.data
+    except Exception:
+        pass
+
+    st.warning("No se pudieron cargar los platos desde la base local.", icon="⚠")
+    return []
 
 
 def promo_config() -> dict:
@@ -1024,6 +1045,7 @@ def mozo_operativo() -> dict:
     return seleccionado
 
 
+@st.cache_resource(show_spinner=False)
 def _get_supabase():
     try:
         from supabase import create_client
@@ -1257,64 +1279,83 @@ def _pedidos_desde_supabase(estados: tuple) -> list[dict] | None:
 
 def pedidos_cocina_detallados() -> list[dict]:
     estados = ("pendiente", "en_cocina", "listo")
-    supabase_data = _pedidos_desde_supabase(estados)
-    if supabase_data is not None:
-        return supabase_data
-
-    cutoff = active_order_cutoff()
-    pedidos = rows("""
-        SELECT pc.id_pedido,
-               pc.fecha_hora,
-               pc.estado_comanda,
-               m.numero_mesa,
-               u.nombre || ' ' || u.apellido AS mozo
-        FROM pedidos_cabecera pc
-        JOIN mesas m ON m.id_mesa = pc.id_mesa
-        JOIN usuarios u ON u.id_usuario = pc.id_usuario
-        WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo')
-          AND pc.fecha_hora >= ?
-        ORDER BY pc.fecha_hora ASC
-    """, (cutoff,))
-    if not pedidos:
-        return []
-    ids = tuple(int(p["id_pedido"]) for p in pedidos if p.get("id_pedido") is not None)
-    placeholders = ",".join("?" for _ in ids)
-    detalles = rows(f"""
-        SELECT pd.id_pedido,
-               pm.nombre,
-               pm.categoria,
-               SUM(pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) AS cantidad,
-               TRIM(COALESCE(pd.observaciones, '')) AS observaciones
-        FROM pedido_detalle pd
-        JOIN productos_menu pm ON pm.id_producto = pd.id_producto
-        WHERE pd.id_pedido IN ({placeholders})
-          AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
-        GROUP BY pd.id_pedido, pm.nombre, pm.categoria, TRIM(COALESCE(pd.observaciones, ''))
-        ORDER BY pm.categoria, pm.nombre
-    """, ids)
-    por_pedido: dict[int, list[dict]] = {}
-    for item in detalles:
-        if item.get("id_pedido") is not None:
-            por_pedido.setdefault(int(item["id_pedido"]), []).append(item)
-    armados = []
-    for pedido in pedidos:
-        if pedido.get("id_pedido") is None:
-            continue
-        pedido["items"] = por_pedido.get(int(pedido["id_pedido"]), [])
-        if not pedido["items"]:
-            pedido["items"] = [{
-                "nombre": "Pedido sin detalle cargado",
-                "cantidad": 1,
-                "categoria": "",
-                "observaciones": "Revisar sincronizacion",
-            }]
-        armados.append(pedido)
-    return armados
+    try:
+        cutoff = active_order_cutoff()
+        pedidos = rows("""
+            SELECT pc.id_pedido,
+                   pc.fecha_hora,
+                   pc.estado_comanda,
+                   m.numero_mesa,
+                   u.nombre || ' ' || u.apellido AS mozo
+            FROM pedidos_cabecera pc
+            JOIN mesas m ON m.id_mesa = pc.id_mesa
+            JOIN usuarios u ON u.id_usuario = pc.id_usuario
+            WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo')
+              AND pc.fecha_hora >= ?
+            ORDER BY pc.fecha_hora ASC
+        """, (cutoff,))
+        if not pedidos:
+            return []
+        ids = tuple(int(p["id_pedido"]) for p in pedidos if p.get("id_pedido") is not None)
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
+        detalles = rows(f"""
+            SELECT pd.id_pedido,
+                   pm.nombre,
+                   pm.categoria,
+                   SUM(pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) AS cantidad,
+                   TRIM(COALESCE(pd.observaciones, '')) AS observaciones
+            FROM pedido_detalle pd
+            JOIN productos_menu pm ON pm.id_producto = pd.id_producto
+            WHERE pd.id_pedido IN ({placeholders})
+              AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
+            GROUP BY pd.id_pedido, pm.nombre, pm.categoria, TRIM(COALESCE(pd.observaciones, ''))
+            ORDER BY pm.categoria, pm.nombre
+        """, ids)
+        por_pedido: dict[int, list[dict]] = {}
+        for item in detalles:
+            if item.get("id_pedido") is not None:
+                por_pedido.setdefault(int(item["id_pedido"]), []).append(item)
+        armados = []
+        for pedido in pedidos:
+            if pedido.get("id_pedido") is None:
+                continue
+            pedido["items"] = por_pedido.get(int(pedido["id_pedido"]), [])
+            if not pedido["items"]:
+                pedido["items"] = [{
+                    "nombre": "Pedido sin detalle cargado",
+                    "cantidad": 1,
+                    "categoria": "",
+                    "observaciones": "Revisar sincronizacion",
+                }]
+            armados.append(pedido)
+        return armados
+    except Exception:
+        supabase_data = _pedidos_desde_supabase(estados)
+        return supabase_data or []
 
 
 def resumen_chef() -> list[dict]:
-    supabase_data = _pedidos_desde_supabase(("pendiente", "en_cocina"))
-    if supabase_data is not None:
+    try:
+        cutoff = active_order_cutoff()
+        return rows("""
+            SELECT pm.nombre,
+                   SUM(pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) AS cantidad
+            FROM pedidos_cabecera pc
+            JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
+            JOIN productos_menu pm ON pm.id_producto = pd.id_producto
+            WHERE pc.estado_comanda IN ('pendiente', 'en_cocina')
+              AND pc.fecha_hora >= ?
+              AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
+            GROUP BY pm.id_producto, pm.nombre
+            ORDER BY cantidad DESC, pm.nombre
+            LIMIT 12
+        """, (cutoff,))
+    except Exception:
+        supabase_data = _pedidos_desde_supabase(("pendiente", "en_cocina"))
+        if supabase_data is None:
+            return []
         acumulado: dict[str, int] = {}
         for pedido in supabase_data:
             for item in pedido.get("items", []):
@@ -1326,21 +1367,6 @@ def resumen_chef() -> list[dict]:
             {"nombre": nombre, "cantidad": cantidad}
             for nombre, cantidad in sorted(acumulado.items(), key=lambda kv: (-kv[1], kv[0]))[:12]
         ]
-
-    cutoff = active_order_cutoff()
-    return rows("""
-        SELECT pm.nombre,
-               SUM(pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) AS cantidad
-        FROM pedidos_cabecera pc
-        JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
-        JOIN productos_menu pm ON pm.id_producto = pd.id_producto
-        WHERE pc.estado_comanda IN ('pendiente', 'en_cocina')
-          AND pc.fecha_hora >= ?
-          AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
-        GROUP BY pm.id_producto, pm.nombre
-        ORDER BY cantidad DESC, pm.nombre
-        LIMIT 12
-    """, (cutoff,))
 
 
 def deshacer_ultimo_despacho() -> dict:
@@ -2922,8 +2948,27 @@ def page_usuarios() -> None:
 
 
 def pedidos_listos_mozo() -> list[dict]:
-    supabase_data = _pedidos_desde_supabase(("listo",))
-    if supabase_data is not None:
+    try:
+        cutoff = active_order_cutoff()
+        return rows("""
+            SELECT pc.id_pedido,
+                   m.numero_mesa,
+                   pc.fecha_hora,
+                   GROUP_CONCAT((pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) || 'x ' || pm.nombre, ', ') AS detalle
+            FROM pedidos_cabecera pc
+            JOIN mesas m ON m.id_mesa = pc.id_mesa
+            JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
+            JOIN productos_menu pm ON pm.id_producto = pd.id_producto
+            WHERE pc.estado_comanda = 'listo'
+              AND pc.fecha_hora >= ?
+              AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
+            GROUP BY pc.id_pedido, m.numero_mesa, pc.fecha_hora
+            ORDER BY pc.fecha_hora
+        """, (cutoff,))
+    except Exception:
+        supabase_data = _pedidos_desde_supabase(("listo",))
+        if supabase_data is None:
+            return []
         listos = []
         for pedido in supabase_data:
             detalle = ", ".join(
@@ -2938,23 +2983,6 @@ def pedidos_listos_mozo() -> list[dict]:
                 "detalle": detalle,
             })
         return listos
-
-    cutoff = active_order_cutoff()
-    return rows("""
-        SELECT pc.id_pedido,
-               m.numero_mesa,
-               pc.fecha_hora,
-               GROUP_CONCAT(pd.cantidad || 'x ' || pm.nombre, ', ') AS detalle
-        FROM pedidos_cabecera pc
-        JOIN mesas m ON m.id_mesa = pc.id_mesa
-        JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
-        JOIN productos_menu pm ON pm.id_producto = pd.id_producto
-        WHERE pc.estado_comanda = 'listo'
-          AND pc.fecha_hora >= ?
-          AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
-        GROUP BY pc.id_pedido, m.numero_mesa, pc.fecha_hora
-        ORDER BY pc.fecha_hora
-    """, (cutoff,))
 
 
 def pedidos_mesa_resumen(id_mesa: int) -> list[dict]:
