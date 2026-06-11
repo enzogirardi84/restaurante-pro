@@ -671,10 +671,7 @@ def login() -> None:
         """,
         unsafe_allow_html=True,
     )
-    if logo_path.exists():
-        logo_cols = st.columns([1, 1, 1])
-        with logo_cols[1]:
-            st.image(str(logo_path), width=128)
+    if not logo_path.exists():
         logo_html = ""
     st.markdown(
         f'<div class="login-header">{logo_html}<div class="login-badge">SISTEMA</div>'
