@@ -3922,69 +3922,117 @@ def page_panel() -> None:
     except Exception:
         pass
 
-    top = st.columns(9)
-    with top[0]:
+    st.markdown(
+        f"""
+        <div class="panel-overview">
+            <div>
+                <div class="panel-overview-label">Hoy</div>
+                <div class="panel-overview-title">{datetime.now():%d/%m/%Y}</div>
+            </div>
+            <div class="panel-overview-chip">Caja {'abierta' if caja else 'cerrada'}</div>
+            <div class="panel-overview-chip">Cocina {(pedidos['pendientes'] or 0) + (pedidos['cocina'] or 0)} activos</div>
+            <div class="panel-overview-chip">Salon {(estados['ocupadas'] or 0) + (estados['cuenta'] or 0)} mesas en uso</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    top_a = st.columns(5)
+    with top_a[0]:
         stat_card("Libres", estados["libres"] or 0, "#2e7d50")
-    with top[1]:
+    with top_a[1]:
         stat_card("Ocupadas", estados["ocupadas"] or 0, "#285f83")
-    with top[2]:
+    with top_a[2]:
         stat_card("En cuenta", estados["cuenta"] or 0, "#b87419")
-    with top[3]:
+    with top_a[3]:
         stat_card("Cocina", (pedidos["pendientes"] or 0) + (pedidos["cocina"] or 0), "#9f2f24")
-    with top[4]:
-        stat_card("Listos", pedidos["listos"] or 0, "#2e7d50")
-    with top[5]:
-        stat_card("Stock bajo", stock_bajo or 0, "#b33a34")
-    with top[6]:
+    with top_a[4]:
         stat_card("Ventas hoy", money(ventas_hoy), "#1565c0")
-    with top[7]:
+
+    top_b = st.columns(4)
+    with top_b[0]:
+        stat_card("Listos", pedidos["listos"] or 0, "#2e7d50")
+    with top_b[1]:
+        stat_card("Stock bajo", stock_bajo or 0, "#b33a34")
+    with top_b[2]:
         stat_card("En turno", turnos_activos or 0, "#2e7d32")
-    with top[8]:
+    with top_b[3]:
         stat_card("Reservas", reservas_hoy or 0, "#7b1fa2")
 
-    # Alertas
     alerts = []
     if stock_bajo:
-        alerts.append(f"🔴 {stock_bajo} insumo(s) con stock bajo")
+        alerts.append(f"{stock_bajo} insumo(s) con stock bajo")
     if pedidos.get("listos"):
-        alerts.append(f"🟡 {pedidos['listos']} pedido(s) listos para servir")
+        alerts.append(f"{pedidos['listos']} pedido(s) listos para servir")
     if reservas_hoy:
-        alerts.append(f"🟣 {reservas_hoy} reserva(s) confirmadas para hoy")
+        alerts.append(f"{reservas_hoy} reserva(s) confirmadas para hoy")
     if not caja:
-        alerts.append("⚪ Caja cerrada — abrir desde el modulo Caja")
+        alerts.append("Caja cerrada: abrir desde el modulo Caja")
     if alerts:
-        for a in alerts:
-            st.caption(a)
+        st.markdown(
+            "<div class='panel-alerts'>" + "".join(f"<span>{escape(a)}</span>" for a in alerts) + "</div>",
+            unsafe_allow_html=True,
+        )
 
     staff = pd.DataFrame(rows("""
         SELECT rol, COUNT(*) AS activos
-        FROM usuarios WHERE COALESCE(activo, 1) = 1
+        FROM (
+            SELECT DISTINCT
+                   TRIM(LOWER(rol)) AS rol,
+                   TRIM(LOWER(nombre)) AS nombre,
+                   TRIM(LOWER(apellido)) AS apellido
+            FROM usuarios
+            WHERE COALESCE(activo, 1) = 1
+        ) personal_unico
         GROUP BY rol ORDER BY rol
     """))
     caja_texto = "Cerrada"
+    caja_detalle = "Abrir caja para comenzar a registrar cobros."
     if caja:
-        caja_texto = f"Abierta #{caja['id_caja']} | Ventas {money(caja['monto_ventas'])}"
+        caja_texto = f"Abierta #{caja['id_caja']}"
+        caja_detalle = f"Ventas acumuladas: {money(caja['monto_ventas'])}"
 
-    col_a, col_b, col_c = st.columns([1.15, 1.15, 1])
+    col_a, col_b, col_c = st.columns([1.08, 1.08, 1], gap="large")
     with col_a:
-        st.subheader("Personal activo")
-        if staff.empty:
-            st.info("Sin personal activo.")
+        staff_rows = ""
+        if not staff.empty:
+            for _, r in staff.iterrows():
+                staff_rows += f"<div class='panel-list-row'><span>{escape(role_label(str(r['rol'])))}</span><b>{int(r['activos'])}</b></div>"
         else:
-            st.dataframe(staff, hide_index=True, use_container_width=True)
+            staff_rows = "<div class='panel-empty'>Sin personal activo.</div>"
+        st.markdown(
+            f"""
+            <div class="panel-card">
+                <div class="panel-card-title">Personal activo</div>
+                {staff_rows}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     with col_b:
-        st.subheader("Caja")
-        st.markdown(f"<div class='card'><b>{escape(caja_texto)}</b><br><span class='muted'>Apertura, egresos y cierres se gestionan desde Caja.</span></div>", unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            <div class="panel-card">
+                <div class="panel-card-title">Caja</div>
+                <div class="panel-status-value">{escape(caja_texto)}</div>
+                <div class="panel-status-detail">{escape(caja_detalle)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     with col_c:
-        st.subheader("Cocina")
-        st.markdown(f"""
-            <div class="card">
-                <div class="line"><span>Pendientes</span><b>{pedidos['pendientes'] or 0}</b></div>
-                <div class="line"><span>En preparacion</span><b>{pedidos['cocina'] or 0}</b></div>
-                <div class="line"><span>Listos</span><b>{pedidos['listos'] or 0}</b></div>
-            </div>""", unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            <div class="panel-card">
+                <div class="panel-card-title">Cocina</div>
+                <div class="panel-list-row"><span>Pendientes</span><b>{pedidos['pendientes'] or 0}</b></div>
+                <div class="panel-list-row"><span>En preparacion</span><b>{pedidos['cocina'] or 0}</b></div>
+                <div class="panel-list-row"><span>Listos</span><b>{pedidos['listos'] or 0}</b></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    # Mesas activas
     mesas_activas = pd.DataFrame(rows("""
         SELECT m.numero_mesa AS mesa, m.estado,
                COUNT(DISTINCT pc.id_pedido) AS pedidos,
@@ -4000,10 +4048,12 @@ def page_panel() -> None:
     """))
     if not mesas_activas.empty:
         mesas_activas["total_est."] = mesas_activas["subtotal"].apply(lambda v: float(v) + service_amount(float(v)))
-        st.subheader("Mesas activas")
-        st.dataframe(mesas_activas, hide_index=True, use_container_width=True)
+        mesas_vista = mesas_activas.copy()
+        mesas_vista["subtotal"] = mesas_vista["subtotal"].apply(money)
+        mesas_vista["total_est."] = mesas_vista["total_est."].apply(money)
+        st.markdown("<div class='panel-section-title'>Mesas activas</div>", unsafe_allow_html=True)
+        st.dataframe(mesas_vista, hide_index=True, use_container_width=True)
 
-    # Pedidos recientes
     pedidos_recientes = pd.DataFrame(rows("""
         SELECT pc.id_pedido, m.numero_mesa, pc.estado_comanda,
                pc.fecha_hora, u.nombre || ' ' || u.apellido AS mozo
@@ -4014,19 +4064,18 @@ def page_panel() -> None:
         ORDER BY pc.fecha_hora DESC LIMIT 15
     """))
     if not pedidos_recientes.empty:
-        with st.expander("Pedidos recientes"):
+        with st.expander("Pedidos recientes", expanded=False):
             st.dataframe(pedidos_recientes, hide_index=True, use_container_width=True)
 
-    # Ultimos eventos
     eventos = pd.DataFrame(rows("""
         SELECT fecha_hora, modulo, accion, detalle
         FROM auditoria_eventos ORDER BY fecha_hora DESC LIMIT 20
     """))
-    st.subheader("Ultimos eventos")
+    st.markdown("<div class='panel-section-title'>Ultimos eventos</div>", unsafe_allow_html=True)
     st.dataframe(eventos, hide_index=True, use_container_width=True)
 
     pdf = _pdf_panel(estados, pedidos, caja, stock_bajo, ventas_hoy, turnos_activos, staff, mesas_activas, eventos, reservas_hoy)
-    st.download_button("📄 Descargar resumen PDF", pdf,
+    st.download_button("Descargar resumen PDF", pdf,
                        file_name=f"panel_{datetime.now():%Y%m%d_%H%M}.pdf",
                        mime="application/pdf", use_container_width=True)
 

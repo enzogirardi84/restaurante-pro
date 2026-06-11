@@ -498,6 +498,118 @@ def inject_styles() -> None:
                 letter-spacing: -0.02em;
             }
 
+            /* Dashboard panel */
+            .panel-overview {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 0.75rem;
+                flex-wrap: wrap;
+                background: linear-gradient(135deg, #1e1c19 0%, #3b2b24 100%);
+                color: white;
+                border-radius: var(--radius);
+                padding: 0.85rem 1rem;
+                margin: 0 0 0.9rem;
+                box-shadow: var(--shadow-md);
+            }
+            .panel-overview-label {
+                color: #d8cfc3;
+                font-size: 0.72rem;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+            .panel-overview-title {
+                font-size: 1.15rem;
+                font-weight: 850;
+                line-height: 1.15;
+            }
+            .panel-overview-chip {
+                border: 1px solid rgba(255,255,255,0.16);
+                background: rgba(255,255,255,0.08);
+                border-radius: 999px;
+                padding: 0.32rem 0.7rem;
+                font-weight: 760;
+                white-space: nowrap;
+                font-size: 0.84rem;
+            }
+            .panel-alerts {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.45rem;
+                margin: 0.25rem 0 0.9rem;
+            }
+            .panel-alerts span {
+                display: inline-flex;
+                align-items: center;
+                border: 1px solid #e2c58c;
+                background: #fff3dc;
+                color: #6b4300;
+                border-radius: 999px;
+                padding: 0.28rem 0.65rem;
+                font-size: 0.82rem;
+                font-weight: 760;
+            }
+            .panel-card {
+                background: var(--panel);
+                border: 1px solid var(--line);
+                border-radius: var(--radius);
+                padding: 0.9rem 1rem;
+                box-shadow: var(--shadow-sm);
+                min-height: 150px;
+                margin: 0.35rem 0 1rem;
+            }
+            .panel-card-title {
+                color: var(--muted);
+                font-size: 0.78rem;
+                font-weight: 820;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                margin-bottom: 0.55rem;
+            }
+            .panel-status-value {
+                font-size: 1.22rem;
+                font-weight: 850;
+                color: var(--ink);
+                line-height: 1.2;
+            }
+            .panel-status-detail {
+                color: var(--muted);
+                font-size: 0.88rem;
+                margin-top: 0.35rem;
+                line-height: 1.35;
+            }
+            .panel-list-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 0.8rem;
+                border-bottom: 1px solid #ece6dd;
+                padding: 0.46rem 0;
+                font-size: 0.92rem;
+            }
+            .panel-list-row:last-child { border-bottom: none; }
+            .panel-list-row b {
+                color: var(--ink);
+                font-weight: 850;
+                white-space: nowrap;
+            }
+            .panel-empty {
+                border: 1px dashed var(--line-strong);
+                background: var(--panel-soft);
+                color: var(--muted);
+                border-radius: var(--radius-sm);
+                padding: 0.8rem;
+                text-align: center;
+                font-weight: 700;
+            }
+            .panel-section-title {
+                font-size: 1.25rem;
+                font-weight: 850;
+                color: var(--ink);
+                margin: 0.9rem 0 0.45rem;
+            }
+
             /* KPI Metric override */
             div[data-testid="stMetric"] {
                 background: var(--panel);
