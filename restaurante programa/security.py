@@ -46,9 +46,4 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def login_logo_tag() -> str:
-    import base64
-    path = Path(__file__).parent / "assets" / "image.png"
-    if not path.exists():
-        return ""
-    b64 = base64.b64encode(path.read_bytes()).decode()
-    return f'<img src="data:image/png;base64,{b64}" alt="Logo El Patrón" class="login-logo-img">'
+    return ""
