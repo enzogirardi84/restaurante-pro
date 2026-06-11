@@ -364,15 +364,10 @@ def inject_styles() -> None:
             .active-users { margin-top: 10px; color: var(--color-cuero); }
 
             .sidebar-brand-shell {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 0.75rem;
-                padding: 0.4rem 0 0.9rem;
+                padding: 0.25rem 0 0.9rem;
                 border-bottom: 1px solid rgba(255,255,255,0.1);
                 margin-bottom: 0.7rem;
             }
-            .sidebar-brand-main { min-width: 0; flex: 1 1 auto; }
             .sidebar-title {
                 font-size: 1.02rem;
                 font-weight: 850;
@@ -399,12 +394,17 @@ def inject_styles() -> None:
                 text-transform: capitalize;
                 margin-top: 0.1rem;
             }
-            .sidebar-logo .login-logo-img {
-                width: 58px;
-                height: 58px;
+            .sidebar-logo-top {
+                display: flex;
+                justify-content: center;
+                padding: 0.35rem 0 0.75rem;
+                margin-bottom: 0.25rem;
+            }
+            .sidebar-logo-top .login-logo-img {
+                width: 86px;
+                height: 86px;
                 margin: 0;
-                flex: 0 0 auto;
-                box-shadow: 0 3px 10px rgba(0,0,0,0.22);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.24);
             }
 
             /* Cards */

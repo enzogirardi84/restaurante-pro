@@ -756,6 +756,10 @@ def allowed_modules(user: dict) -> list[str]:
 def sidebar() -> None:
     user = st.session_state.usuario
     logo_html = login_logo_tag()
+    st.sidebar.markdown(
+        f'<div class="sidebar-logo-top">{logo_html}</div>',
+        unsafe_allow_html=True,
+    )
     # Botón colapsar — dentro del sidebar, alineado a la derecha
     col_spacer, col_btn = st.sidebar.columns([4, 1])
     with col_btn:
@@ -765,14 +769,11 @@ def sidebar() -> None:
     st.sidebar.markdown(
         f"""
         <div class="sidebar-brand-shell">
-            <div class="sidebar-brand-main">
-                <div class="sidebar-title">{APP_TITLE}</div>
-                <div class="sidebar-user-card">
-                    <div class="sidebar-user-name">{escape(user['nombre'])} {escape(user['apellido'])}</div>
-                    <div class="sidebar-user-role">{escape(user['rol'])}</div>
-                </div>
+            <div class="sidebar-title">{APP_TITLE}</div>
+            <div class="sidebar-user-card">
+                <div class="sidebar-user-name">{escape(user['nombre'])} {escape(user['apellido'])}</div>
+                <div class="sidebar-user-role">{escape(user['rol'])}</div>
             </div>
-            <div class="sidebar-logo">{logo_html}</div>
         </div>
         """,
         unsafe_allow_html=True,
