@@ -546,7 +546,7 @@ def get_mozos() -> list[dict]:
     return rows("""
         SELECT id_usuario, nombre, apellido, rol, pin
         FROM usuarios
-        WHERE rol = 'mozo'
+        WHERE TRIM(LOWER(rol)) = 'mozo'
           AND COALESCE(activo, 1) = 1
         ORDER BY nombre, apellido
     """)
@@ -556,7 +556,7 @@ def get_personal(rol: str | None = None, active_only: bool = False) -> list[dict
     filtros = []
     params: list = []
     if rol:
-        filtros.append("rol = ?")
+        filtros.append("TRIM(LOWER(rol)) = TRIM(LOWER(?))")
         params.append(rol)
     if active_only:
         filtros.append("COALESCE(activo, 1) = 1")
@@ -711,12 +711,12 @@ def pedidos_cocina_detallados() -> list[dict]:
                pc.fecha_hora,
                pc.estado_comanda,
                m.numero_mesa,
-               u.nombre || ' ' || u.apellido AS mozo
-        FROM pedidos_cabecera pc
-        JOIN mesas m ON m.id_mesa = pc.id_mesa
-        JOIN usuarios u ON u.id_usuario = pc.id_usuario
-        WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo')
-        ORDER BY pc.fecha_hora ASC
+                u.nombre || ' ' || u.apellido AS mozo
+         FROM pedidos_cabecera pc
+         JOIN mesas m ON m.id_mesa = pc.id_mesa
+         JOIN usuarios u ON u.id_usuario = pc.id_usuario
+         WHERE TRIM(LOWER(pc.estado_comanda)) IN ('pendiente', 'en_cocina', 'listo')
+         ORDER BY pc.fecha_hora ASC
     """)
     if not pedidos:
         return []
@@ -852,7 +852,7 @@ def caja_abierta() -> dict | None:
             SELECT cd.*, u.nombre || ' ' || u.apellido AS cajero
             FROM cajas_diarias cd
             JOIN usuarios u ON u.id_usuario = cd.id_usuario_cajero
-            WHERE cd.estado_caja = 'abierta'
+            WHERE TRIM(LOWER(cd.estado_caja)) = 'abierta'
             ORDER BY cd.id_caja DESC
             LIMIT 1
         """)
@@ -863,7 +863,7 @@ def caja_abierta() -> dict | None:
 def registrar_movimiento_caja(conn, monto: float, descripcion: str, tipo: str = "ingreso_venta") -> None:
     caja = conn.execute("""
         SELECT id_caja FROM cajas_diarias
-        WHERE estado_caja = 'abierta'
+        WHERE TRIM(LOWER(estado_caja)) = 'abierta'
         ORDER BY id_caja DESC LIMIT 1
     """).fetchone()
     if not caja:
@@ -1123,37 +1123,43 @@ def anulaciones_recientes(limit: int = 10) -> list[dict]:
 
 def generar_corte_caja(caja: dict) -> tuple[str, pd.DataFrame, pd.DataFrame]:
     cfg = restaurant_config()
-    movimientos = pd.DataFrame(rows("""
-        SELECT fecha_hora, tipo_movimiento, monto, descripcion
-        FROM movimientos_caja
-        WHERE id_caja = ?
-        ORDER BY fecha_hora
-    """, (caja["id_caja"],)))
-    if caja.get("fecha_cierre"):
-        medios = pd.DataFrame(rows("""
-            SELECT medio_pago,
-                   COUNT(*) AS pagos,
-                   SUM(subtotal) AS subtotal,
-                   SUM(servicio) AS servicio,
-                   SUM(total) AS total
-            FROM pagos_mesa
-            WHERE fecha_hora >= ?
-              AND fecha_hora <= ?
-            GROUP BY medio_pago
-            ORDER BY total DESC
-        """, (caja["fecha_apertura"], caja["fecha_cierre"])))
-    else:
-        medios = pd.DataFrame(rows("""
-            SELECT medio_pago,
-                   COUNT(*) AS pagos,
-                   SUM(subtotal) AS subtotal,
-                   SUM(servicio) AS servicio,
-                   SUM(total) AS total
-            FROM pagos_mesa
-            WHERE fecha_hora >= ?
-            GROUP BY medio_pago
-            ORDER BY total DESC
-        """, (caja["fecha_apertura"],)))
+    try:
+        movimientos = pd.DataFrame(rows("""
+            SELECT fecha_hora, tipo_movimiento, monto, descripcion
+            FROM movimientos_caja
+            WHERE id_caja = ?
+            ORDER BY fecha_hora
+        """, (caja["id_caja"],)))
+    except Exception:
+        movimientos = pd.DataFrame(columns=["fecha_hora", "tipo_movimiento", "monto", "descripcion"])
+    try:
+        if caja.get("fecha_cierre"):
+            medios = pd.DataFrame(rows("""
+                SELECT medio_pago,
+                       COUNT(*) AS pagos,
+                       SUM(subtotal) AS subtotal,
+                       SUM(servicio) AS servicio,
+                       SUM(total) AS total
+                FROM pagos_mesa
+                WHERE fecha_hora >= ?
+                  AND fecha_hora <= ?
+                GROUP BY medio_pago
+                ORDER BY total DESC
+            """, (caja["fecha_apertura"], caja["fecha_cierre"])))
+        else:
+            medios = pd.DataFrame(rows("""
+                SELECT medio_pago,
+                       COUNT(*) AS pagos,
+                       SUM(subtotal) AS subtotal,
+                       SUM(servicio) AS servicio,
+                       SUM(total) AS total
+                FROM pagos_mesa
+                WHERE fecha_hora >= ?
+                GROUP BY medio_pago
+                ORDER BY total DESC
+            """, (caja["fecha_apertura"],)))
+    except Exception:
+        medios = pd.DataFrame(columns=["medio_pago", "pagos", "subtotal", "servicio", "total"])
     ingresos = float(movimientos[movimientos["tipo_movimiento"] == "ingreso_venta"]["monto"].sum()) if not movimientos.empty else 0
     egresos = float(movimientos[movimientos["tipo_movimiento"] != "ingreso_venta"]["monto"].sum()) if not movimientos.empty else 0
     esperado = float(caja["monto_apertura"] or 0) + ingresos - egresos
@@ -1222,7 +1228,7 @@ def pedidos_listos_mozo() -> list[dict]:
         JOIN mesas m ON m.id_mesa = pc.id_mesa
         JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
         JOIN productos_menu pm ON pm.id_producto = pd.id_producto
-        WHERE pc.estado_comanda = 'listo'
+        WHERE TRIM(LOWER(pc.estado_comanda)) = 'listo'
           AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
         GROUP BY pc.id_pedido, m.numero_mesa, pc.fecha_hora
         ORDER BY pc.fecha_hora
