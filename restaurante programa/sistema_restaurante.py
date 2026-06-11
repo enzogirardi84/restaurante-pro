@@ -208,8 +208,9 @@ def _asegurar_sqlite_local():
                 if not _filas:
                     continue
                 _cols = list(_filas[0].keys())
-                sl_conn.execute(f'DROP TABLE IF EXISTS "{_tabla}"')
-                sl_conn.execute(f'CREATE TABLE IF NOT EXISTS "{_tabla}" ({", ".join(f'"{c}"' for c in _cols)})')
+                # NO dropeamos la tabla — respetamos el esquema con constraints
+                # que ya creó init_db(). Solo creamos si no existe.
+                sl_conn.execute(f'CREATE TABLE IF NOT EXISTS "{_tabla}" ({", ".join(f'"{c}" TEXT' for c in _cols)})')
                 _ph = ", ".join("?" for _ in _cols)
                 _cn = ", ".join(f'"{c}"' for c in _cols)
                 for _f in _filas:
@@ -995,15 +996,17 @@ def _sync_pedido_a_supabase(id_pedido: int, id_mesa: int, id_usuario: int, items
         return
     try:
         import datetime
-        sb.table("pedidos_cabecera").insert({
+        _now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Upsert para evitar conflictos con id_pedido — si ya existe, hace merge
+        sb.table("pedidos_cabecera").upsert({
             "id_pedido": id_pedido,
             "id_mesa": id_mesa,
             "id_usuario": id_usuario,
             "estado_comanda": "pendiente",
-            "fecha_hora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "fecha_hora": _now,
         }).execute()
         for item in items:
-            sb.table("pedido_detalle").insert({
+            sb.table("pedido_detalle").upsert({
                 "id_pedido": id_pedido,
                 "id_producto": int(item["id_producto"]),
                 "cantidad": int(item["cantidad"]),
@@ -1156,6 +1159,15 @@ def _pedidos_desde_supabase(estados: tuple) -> list[dict] | None:
         dets = sb.table("pedido_detalle").select(
             "id_pedido, id_producto, cantidad, observaciones"
         ).in_("id_pedido", ids).execute()
+        id_productos = list(set(d["id_producto"] for d in dets.data))
+        prod_map = {}
+        for pid in id_productos:
+            try:
+                r = sb.table("productos_menu").select("nombre, categoria").eq("id_producto", pid).execute()
+                if r.data:
+                    prod_map[pid] = r.data[0]
+            except Exception:
+                pass
         det_por_pedido: dict[int, list[dict]] = {}
         for d in dets.data:
             det_por_pedido.setdefault(d["id_pedido"], []).append(d)
@@ -1166,10 +1178,11 @@ def _pedidos_desde_supabase(estados: tuple) -> list[dict] | None:
                 continue
             items_out = []
             for i in items_raw:
+                prod_info = prod_map.get(i["id_producto"], {})
                 items_out.append({
-                    "nombre": f"Producto #{i['id_producto']}",
+                    "nombre": prod_info.get("nombre", f"Producto #{i['id_producto']}"),
                     "cantidad": i["cantidad"],
-                    "categoria": "",
+                    "categoria": prod_info.get("categoria", ""),
                     "observaciones": i.get("observaciones", ""),
                 })
             result.append({
