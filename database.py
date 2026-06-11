@@ -371,14 +371,13 @@ def confirmar_pedido_cocina(id_pedido: int) -> dict:
     """
     conn = get_connection_direct()
     try:
-        conn.execute("BEGIN TRANSACTION" if config.DB_ENGINE == "sqlite"
-                     else "BEGIN")
+        conn.execute("BEGIN TRANSACTION" if config.DB_ENGINE == "sqlite" else "BEGIN")
+
+        p = ph()
 
         # ── Validar ──
         cur = conn.execute(
-            "SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = %s"
-            if config.DB_ENGINE == "postgresql"
-            else "SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = ?",
+            f"SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = {p}",
             (id_pedido,)
         )
         row = cur.fetchone()
@@ -391,44 +390,44 @@ def confirmar_pedido_cocina(id_pedido: int) -> dict:
             return {"ok": False, "error": f"Estado inválido: '{estado}'."}
 
         # ── Detalle del pedido ──
-        placeholder = "%s" if config.DB_ENGINE == "postgresql" else "?"
-        cur = conn.execute(f"""
-            SELECT pd.id_producto, pd.cantidad, pm.nombre
-            FROM pedido_detalle pd
-            JOIN productos_menu pm ON pm.id_producto = pd.id_producto
-            WHERE pd.id_pedido = {placeholder}
-        """, (id_pedido,))
+        cur = conn.execute(
+            f"SELECT pd.id_producto, pd.cantidad, pm.nombre"
+            f" FROM pedido_detalle pd"
+            f" JOIN productos_menu pm ON pm.id_producto = pd.id_producto"
+            f" WHERE pd.id_pedido = {p}",
+            (id_pedido,)
+        )
         detalle = cur.fetchall()
 
         for item in detalle:
-            cur = conn.execute(f"""
-                SELECT id_insumo, cantidad_a_descontar
-                FROM recetas_escandallo
-                WHERE id_producto = {placeholder}
-            """, (item["id_producto"],))
+            cur = conn.execute(
+                f"SELECT id_insumo, cantidad_a_descontar"
+                f" FROM recetas_escandallo"
+                f" WHERE id_producto = {p}",
+                (item["id_producto"],)
+            )
             recetas = cur.fetchall()
-
             for receta in recetas:
                 qty = receta["cantidad_a_descontar"] * item["cantidad"]
-                conn.execute(f"""
-                    UPDATE insumos
-                    SET stock_actual = stock_actual - {placeholder}
-                    WHERE id_insumo = {placeholder}
-                """, (qty, receta["id_insumo"]))
+                conn.execute(
+                    f"UPDATE insumos SET stock_actual = stock_actual - {p}"
+                    f" WHERE id_insumo = {p}",
+                    (qty, receta["id_insumo"])
+                )
 
         # ── Cambiar estado ──
-        conn.execute(f"""
-            UPDATE pedidos_cabecera SET estado_comanda = 'listo'
-            WHERE id_pedido = {placeholder}
-        """, (id_pedido,))
+        conn.execute(
+            f"UPDATE pedidos_cabecera SET estado_comanda = 'listo' WHERE id_pedido = {p}",
+            (id_pedido,)
+        )
 
         conn.commit()
 
         # ── Alertas de stock ──
-        cur = conn.execute("""
-            SELECT nombre, stock_actual, stock_minimo
-            FROM insumos WHERE stock_actual <= stock_minimo
-        """)
+        cur = conn.execute(
+            "SELECT nombre, stock_actual, stock_minimo"
+            " FROM insumos WHERE stock_actual <= stock_minimo"
+        )
         bajos = cur.fetchall()
         advertencias = [
             f"⚠️  Stock bajo: '{r['nombre']}' ({r['stock_actual']:.0f}/{r['stock_minimo']:.0f})"
@@ -442,11 +441,8 @@ def confirmar_pedido_cocina(id_pedido: int) -> dict:
     finally:
         conn.close()
 
+
 def avanzar_estado(id_pedido: int, estado_actual: str) -> dict:
-    """
-    Avanza el estado de un pedido en el flujo KDS:
-      pendiente → en_cocina → listo
-    """
     transiciones = {
         "pendiente": "en_cocina",
         "en_cocina": "listo",
@@ -459,7 +455,7 @@ def avanzar_estado(id_pedido: int, estado_actual: str) -> dict:
     if nuevo_estado == "listo":
         return confirmar_pedido_cocina(id_pedido)
 
-    # Para pendiente → en_cocina, update simple
+    # pendiente → en_cocina: update simple
     conn = get_connection_direct()
     try:
         p = ph()
@@ -470,11 +466,9 @@ def avanzar_estado(id_pedido: int, estado_actual: str) -> dict:
         row = cur.fetchone()
         if row is None:
             return {"ok": False, "error": f"Pedido {id_pedido} no existe."}
-
-        estado_db = row["estado_comanda"]
+        estado_db = row["estado_comanda"] if hasattr(row, "__getitem__") else row[0]
         if estado_db != estado_actual:
             return {"ok": False, "error": f"Estado actual en DB es '{estado_db}', no '{estado_actual}'."}
-
         conn.execute(
             f"UPDATE pedidos_cabecera SET estado_comanda = {p} WHERE id_pedido = {p}",
             (nuevo_estado, id_pedido)
@@ -487,6 +481,119 @@ def avanzar_estado(id_pedido: int, estado_actual: str) -> dict:
     finally:
         conn.close()
 
+
+def obtener_pedidos_por_estado() -> dict[str, list[dict]]:
+    """
+    Retorna comandas agrupadas por estado para el KDS.
+    Siempre incluye las keys: pendiente, en_cocina, listo.
+    """
+    grupos: dict[str, list[dict]] = {"pendiente": [], "en_cocina": [], "listo": []}
+    conn = get_connection_direct()
+    try:
+        agg = str_agg("pm.nombre || ' x' || pd.cantidad")
+        rows_result = conn.execute(f"""
+            SELECT
+                pc.id_pedido       AS id,
+                pc.fecha_hora      AS fecha,
+                pc.estado_comanda  AS estado,
+                m.numero_mesa      AS mesa,
+                u.nombre || ' ' || u.apellido AS mozo,
+                {agg}              AS detalle
+            FROM pedidos_cabecera pc
+            JOIN mesas m         ON m.id_mesa      = pc.id_mesa
+            JOIN usuarios u      ON u.id_usuario   = pc.id_usuario
+            JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
+            JOIN productos_menu pm ON pm.id_producto = pd.id_producto
+            WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo')
+              AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
+            GROUP BY pc.id_pedido, pc.fecha_hora, pc.estado_comanda,
+                     m.numero_mesa, u.nombre, u.apellido
+            ORDER BY pc.fecha_hora ASC
+        """).fetchall()
+    finally:
+        conn.close()
+
+    for r in rows_result:
+        estado = r["estado"]
+        if estado in grupos:
+            grupos[estado].append(dict(r))
+
+    return grupos
+
+
+def seed_pedidos_demo() -> None:
+    """Compatibilidad: no hace nada si ya hay datos."""
+    pass
+
+    
+
+def avanzar_estado(id_pedido: int, estado_actual: str) -> dict:
+    transiciones = {
+        "pendiente": "en_cocina",
+        "en_cocina": "listo",
+    }
+    nuevo_estado = transiciones.get(estado_actual)
+    if not nuevo_estado:
+        return {"ok": False, "error": f"Estado '{estado_actual}' no tiene transición definida."}
+
+    # Intentar primero en Supabase
+    try:
+        import config as _cfg
+        if _cfg.DB_ENGINE == "postgresql" or _cfg.DATABASE_URL:
+            conn = get_connection_direct()
+            try:
+                p = ph()
+                cur = conn.execute(
+                    f"SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = {p}",
+                    (id_pedido,)
+                )
+                row = cur.fetchone()
+                if row is None:
+                    conn.close()
+                    # No está en Supabase/postgres, intentar SQLite
+                    raise ValueError("not_found")
+                conn.execute(
+                    f"UPDATE pedidos_cabecera SET estado_comanda = {p} WHERE id_pedido = {p}",
+                    (nuevo_estado, id_pedido)
+                )
+                conn.commit()
+                conn.close()
+                if nuevo_estado == "listo":
+                    return confirmar_pedido_cocina(id_pedido)
+                return {"ok": True, "advertencias": []}
+            except ValueError:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # Fallback a SQLite local
+    if nuevo_estado == "listo":
+        return confirmar_pedido_cocina(id_pedido)
+
+    conn = get_connection_direct()
+    try:
+        p = ph()
+        cur = conn.execute(
+            f"SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = {p}",
+            (id_pedido,)
+        )
+        row = cur.fetchone()
+        if row is None:
+            return {"ok": False, "error": f"Pedido {id_pedido} no existe."}
+        conn.execute(
+            f"UPDATE pedidos_cabecera SET estado_comanda = {p} WHERE id_pedido = {p}",
+            (nuevo_estado, id_pedido)
+        )
+        conn.commit()
+        return {"ok": True, "advertencias": []}
+    except Exception as e:
+        conn.rollback()
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
 
 def obtener_pedidos_por_estado() -> dict[str, list[dict]]:
     """
