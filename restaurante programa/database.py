@@ -1518,6 +1518,33 @@ def seed_pedidos_demo() -> None:
     pass
 
 
+def database_label() -> str:
+    """Retorna etiqueta descriptiva del motor de base de datos activo."""
+    if config.DB_ENGINE == "postgresql":
+        return "Supabase / PostgreSQL"
+    return "SQLite local"
+
+
+def logs_operaciones_recientes(limit: int = 50) -> list[dict]:
+    """Retorna los últimos eventos de auditoría."""
+    try:
+        conn = get_connection_direct()
+        try:
+            p = ph()
+            resultado = conn.execute(
+                f"SELECT fecha_hora, modulo, accion, detalle"
+                f" FROM auditoria_eventos"
+                f" ORDER BY fecha_hora DESC"
+                f" LIMIT {p}",
+                (limit,)
+            ).fetchall()
+            return [dict(r) for r in resultado]
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
+
 def active_order_cutoff() -> str:
     """Retorna timestamp de corte para pedidos activos (últimas 12 horas)."""
     from datetime import datetime, timedelta
