@@ -1516,3 +1516,151 @@ def obtener_pedidos_por_estado() -> dict[str, list[dict]]:
 
 def seed_pedidos_demo() -> None:
     pass
+
+
+def active_order_cutoff() -> str:
+    """Retorna timestamp de corte para pedidos activos (últimas 12 horas)."""
+    from datetime import datetime, timedelta
+    return (datetime.now() - timedelta(hours=12)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def using_postgres() -> bool:
+    """Retorna True si el motor es PostgreSQL."""
+    return config.DB_ENGINE == "postgresql"
+
+
+def registrar_auditoria(modulo: str, accion: str, detalle: str = "") -> None:
+    """Registra un evento de auditoría."""
+    try:
+        conn = get_connection_direct()
+        try:
+            p = ph()
+            conn.execute(
+                f"INSERT INTO auditoria_eventos (modulo, accion, detalle) VALUES ({p},{p},{p})",
+                (modulo, accion, detalle)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def cerrar_pedidos_vencidos() -> dict:
+    """Cierra pedidos con más de 12 horas sin actividad."""
+    try:
+        cutoff = active_order_cutoff()
+        conn = get_connection_direct()
+        try:
+            p = ph()
+            cur = conn.execute(
+                f"SELECT id_pedido, id_mesa FROM pedidos_cabecera"
+                f" WHERE estado_comanda IN ('pendiente','en_cocina','listo')"
+                f" AND fecha_hora < {p}",
+                (cutoff,)
+            )
+            vencidos = cur.fetchall()
+            mesas_liberadas = set()
+            for v in vencidos:
+                conn.execute(
+                    f"UPDATE pedidos_cabecera SET estado_comanda = 'cobrado' WHERE id_pedido = {p}",
+                    (v["id_pedido"],)
+                )
+                mesas_liberadas.add(v["id_mesa"])
+            for id_mesa in mesas_liberadas:
+                conn.execute(
+                    f"UPDATE mesas SET estado = 'libre' WHERE id_mesa = {p}",
+                    (id_mesa,)
+                )
+            conn.commit()
+            return {"ok": True, "cerrados": len(vencidos), "mesas_liberadas": len(mesas_liberadas)}
+        finally:
+            conn.close()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def marcar_pedido_entregado(id_pedido: int) -> dict:
+    """Cambia estado de 'listo' a 'entregado'."""
+    conn = get_connection_direct()
+    try:
+        p = ph()
+        cur = conn.execute(
+            f"SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = {p}",
+            (id_pedido,)
+        )
+        row = cur.fetchone()
+        if row is None:
+            return {"ok": False, "error": f"Pedido {id_pedido} no existe."}
+        conn.execute(
+            f"UPDATE pedidos_cabecera SET estado_comanda = 'entregado' WHERE id_pedido = {p}",
+            (id_pedido,)
+        )
+        conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def procesar_cola_sincronizacion() -> None:
+    """Procesa cola de sincronización pendiente. No-op si no hay cola."""
+    try:
+        conn = get_connection_direct()
+        try:
+            p = ph()
+            pendientes = conn.execute(
+                f"SELECT * FROM cola_sincronizacion WHERE procesado = 0 LIMIT 50"
+            ).fetchall()
+            for item in pendientes:
+                conn.execute(
+                    f"UPDATE cola_sincronizacion SET procesado = 1 WHERE id = {p}",
+                    (item["id"],)
+                )
+            if pendientes:
+                conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def encolar_sync(tabla: str, operacion: str, id_registro: str, datos: dict) -> None:
+    """Encola un cambio para sincronización."""
+    try:
+        import json
+        conn = get_connection_direct()
+        try:
+            p = ph()
+            conn.execute(
+                f"INSERT INTO cola_sincronizacion (tabla, operacion, id_registro, datos, procesado)"
+                f" VALUES ({p},{p},{p},{p},0)",
+                (tabla, operacion, id_registro, json.dumps(datos))
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def seed_menu_premium() -> None:
+    """Siembra el menú premium si la tabla está vacía."""
+    try:
+        conn = get_connection_direct()
+        try:
+            cur = conn.execute("SELECT COUNT(*) AS cnt FROM productos_menu")
+            row = cur.fetchone()
+            count = row["cnt"] if hasattr(row, "__getitem__") else row[0]
+            if count == 0:
+                _seed_menu_premium(conn)
+                conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
