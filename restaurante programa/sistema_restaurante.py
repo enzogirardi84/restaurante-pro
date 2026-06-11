@@ -664,8 +664,19 @@ def login() -> None:
             }
             [data-testid="stAppViewContainer"] > .main > .block-container {
                 max-width: 420px !important;
-                margin: 60px auto 0 !important;
+                margin: 42px auto 0 !important;
                 padding-top: 0 !important;
+            }
+            .login-header {
+                text-align: center;
+                margin: 0 auto 22px;
+            }
+            .login-header .login-logo-img {
+                width: 118px;
+                height: 118px;
+                object-fit: cover;
+                display: block;
+                margin: 0 auto 12px;
             }
         </style>
         """,
@@ -757,9 +768,7 @@ def sidebar() -> None:
     user = st.session_state.usuario
     logo_path = login_logo_path()
     logo_html = login_logo_tag()
-    if logo_path.exists():
-        st.sidebar.image(str(logo_path), width=86)
-    elif logo_html:
+    if logo_path.exists() and logo_html:
         st.sidebar.markdown(
             f'<div class="sidebar-logo-top">{logo_html}</div>',
             unsafe_allow_html=True,
