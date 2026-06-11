@@ -1,6 +1,9 @@
 from pathlib import Path
 import ast
+import os
 import tempfile
+
+os.environ["DB_ENGINE"] = "sqlite"
 
 import database
 import cloud_config
@@ -152,6 +155,11 @@ def test_schema_core():
         usuario_cols = {r["name"] for r in conn.execute("PRAGMA table_info(usuarios)")}
         assert "mail" in usuario_cols
         assert "contrasena" in usuario_cols
+        producto_pk = {
+            r["name"]: int(r["pk"] or 0)
+            for r in conn.execute("PRAGMA table_info(productos_menu)")
+        }
+        assert producto_pk["id_producto"] == 1
         admin_access = conn.execute(
             "SELECT mail, contrasena FROM usuarios WHERE mail = ?",
             ("anahigilardi",),
@@ -189,7 +197,7 @@ def test_schema_core():
 
 
 def test_supabase_schema_migrates_existing_tables_before_seed():
-    schema = Path("supabase/schema.sql").read_text(encoding="utf-8").lower()
+    schema = (Path(__file__).resolve().parent / "supabase" / "schema.sql").read_text(encoding="utf-8").lower()
     assert schema.index("add column if not exists rol text") < schema.index("insert into accesos_sistema")
     assert schema.index("add column if not exists id_usuario") < schema.index("references usuarios(id_usuario)")
     assert schema.index("add column if not exists pin text") < schema.index("insert into usuarios")
@@ -283,6 +291,89 @@ def test_payments_and_cancellations_schema_flow():
         """, (detalle,)).fetchone()
         assert row["pendiente"] == 1
         assert conn.execute("SELECT COUNT(*) AS c FROM pago_detalle").fetchone()["c"] == 1
+    finally:
+        conn.close()
+
+
+def test_manual_table_release_closes_active_orders():
+    fresh_db()
+    from components.helpers import liberar_mesa_sin_cobro
+
+    conn = database.get_connection()
+    try:
+        pedido = conn.execute("""
+            SELECT id_pedido, id_mesa
+            FROM pedidos_cabecera
+            WHERE estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
+            LIMIT 1
+        """).fetchone()
+        assert pedido
+        id_mesa = int(pedido["id_mesa"])
+        conn.execute("UPDATE mesas SET estado = 'esperando_cuenta' WHERE id_mesa = ?", (id_mesa,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    res = liberar_mesa_sin_cobro(id_mesa, "test liberacion")
+    assert res["ok"]
+    assert res["pedidos_cerrados"] >= 1
+
+    conn = database.get_connection()
+    try:
+        mesa = conn.execute("SELECT estado FROM mesas WHERE id_mesa = ?", (id_mesa,)).fetchone()
+        assert mesa["estado"] == "libre"
+        activos = conn.execute("""
+            SELECT COUNT(*) AS c
+            FROM pedidos_cabecera
+            WHERE id_mesa = ?
+              AND estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
+        """, (id_mesa,)).fetchone()["c"]
+        assert activos == 0
+    finally:
+        conn.close()
+
+
+def test_stale_active_orders_close_and_release_table():
+    fresh_db()
+    conn = database.get_connection()
+    try:
+        user = conn.execute("SELECT id_usuario FROM usuarios ORDER BY id_usuario LIMIT 1").fetchone()
+        product = conn.execute("SELECT id_producto FROM productos_menu ORDER BY id_producto LIMIT 1").fetchone()
+        cur = conn.execute("""
+            INSERT INTO pedidos_cabecera (id_mesa, id_usuario, fecha_hora, estado_comanda)
+            VALUES (?, ?, ?, 'listo')
+        """, (5, user["id_usuario"], "2000-01-01 12:00:00"))
+        pedido_id = cur.lastrowid
+        conn.execute("""
+            INSERT INTO pedido_detalle (id_pedido, id_producto, cantidad, observaciones)
+            VALUES (?, ?, 2, 'pedido viejo')
+        """, (pedido_id, product["id_producto"]))
+        conn.execute("UPDATE mesas SET estado = 'ocupada' WHERE id_mesa = 5")
+        conn.commit()
+    finally:
+        conn.close()
+
+    res = database.cerrar_pedidos_vencidos(hours=18)
+    assert res["ok"]
+    assert res["cerrados"] >= 1
+
+    conn = database.get_connection()
+    try:
+        pedido = conn.execute(
+            "SELECT estado_comanda, medio_pago, total_cobrado FROM pedidos_cabecera WHERE id_pedido = ?",
+            (pedido_id,),
+        ).fetchone()
+        mesa = conn.execute("SELECT estado FROM mesas WHERE id_mesa = 5").fetchone()
+        detalle = conn.execute(
+            "SELECT cantidad, cantidad_anulada, motivo_anulacion FROM pedido_detalle WHERE id_pedido = ?",
+            (pedido_id,),
+        ).fetchone()
+        assert pedido["estado_comanda"] == "cobrado"
+        assert pedido["medio_pago"] == "cierre_automatico"
+        assert float(pedido["total_cobrado"] or 0) == 0
+        assert mesa["estado"] == "libre"
+        assert int(detalle["cantidad_anulada"]) == int(detalle["cantidad"])
+        assert "antiguedad" in detalle["motivo_anulacion"]
     finally:
         conn.close()
 

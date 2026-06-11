@@ -35,8 +35,10 @@ from cash_utils import (
     cash_expected,
 )
 from database import (
+    active_order_cutoff,
     DB_PATH,
     avanzar_estado,
+    cerrar_pedidos_vencidos,
     get_connection,
     init_db,
     marcar_pedido_entregado,
@@ -648,53 +650,20 @@ def start_recovery_admin_session(access_user: str = "anahigilardi") -> None:
 
 
 def login() -> None:
+    usuario_sistema = get_config("usuario_sistema", SYSTEM_USERNAME)
+    accesos = active_system_accesses()
     logo_html = login_logo_tag()
     st.markdown(
         """
         <style>
-            .stApp {
-                background:
-                    radial-gradient(circle at 18% 12%, rgba(255,249,237,0.72), transparent 28rem),
-                    radial-gradient(circle at 82% 18%, rgba(93,58,46,0.12), transparent 24rem),
-                    linear-gradient(135deg, #efe1cf 0%, #fff9ed 48%, #eadcc9 100%) !important;
-            }
-            .stApp::before {
-                content: "";
-                position: fixed;
-                inset: 0;
-                pointer-events: none;
-                z-index: 0;
-                background-image:
-                    repeating-linear-gradient(0deg, rgba(93,58,46,0.045) 0 1px, transparent 1px 5px),
-                    repeating-linear-gradient(90deg, rgba(93,58,46,0.025) 0 1px, transparent 1px 7px);
-                opacity: 0.42;
-            }
             [data-testid="stAppViewContainer"] > .main {
-                background: transparent !important;
+                background: var(--color-pergamino) !important;
                 font-family: 'Libre Caslon Text', serif !important;
             }
-            [data-testid="stAppViewContainer"] .main .block-container,
-            .stMain .block-container,
-            section.main .block-container,
-            div.block-container {
-                max-width: min(560px, calc(100vw - 2rem)) !important;
-                margin: clamp(0.75rem, 3vh, 2rem) auto !important;
-                padding: 1.15rem 1.35rem 1rem !important;
-                background: rgba(255,249,237,0.94);
-                border: 1px solid rgba(180,138,99,0.58);
-                border-radius: 12px;
-                box-shadow: 0 18px 45px rgba(44,34,30,0.14), inset 0 1px 0 rgba(255,255,255,0.65);
-                position: relative;
-                z-index: 1;
-            }
-            @media (max-width: 760px) {
-                [data-testid="stAppViewContainer"] .main .block-container,
-                .stMain .block-container,
-                section.main .block-container,
-                div.block-container {
-                    margin: 0.75rem auto !important;
-                    padding: 1rem 0.9rem !important;
-                }
+            [data-testid="stAppViewContainer"] > .main > .block-container {
+                max-width: 420px !important;
+                margin: 60px auto 0 !important;
+                padding-top: 0 !important;
             }
         </style>
         """,
@@ -742,17 +711,18 @@ def login() -> None:
         else:
             st.error("Usuario o contraseña incorrectos.")
     if system_password_is_default():
-        st.warning("Hay un acceso anterior activo. Al ingresar, el sistema pedira actualizarlo.")
+        st.warning("Hay un acceso anterior activo. Al ingresar, el sistema pedirá actualizarlo.")
+    mostrar = ", ".join(str(a["usuario"]) for a in accesos) or usuario_sistema if accesos else "\u2014"
     st.markdown(
-        """
+        f"""
         <div class="login-footer">
-            <div class="footer-title">Accesos rapidos</div>
             <div class="footer-links">
-                <a href="?terminal=mozo">Mozo</a>
-                <span>|</span>
-                <a href="?terminal=cocina">Cocina</a>
-                <span>|</span>
+                <a href="?terminal=mozo">Mozo</a> |
+                <a href="?terminal=cocina">Cocina</a> |
                 <a href="?terminal=caja">Caja</a>
+            </div>
+            <div class="active-users">
+                \u25cf Usuarios activos: <strong>{mostrar}</strong>
             </div>
         </div>
         """,
@@ -936,13 +906,26 @@ def get_mesas() -> list[dict]:
 
 
 def get_mozos() -> list[dict]:
-    return rows("""
+    mozos = rows("""
         SELECT id_usuario, nombre, apellido, rol, pin
         FROM usuarios
         WHERE TRIM(LOWER(rol)) = 'mozo'
           AND COALESCE(activo, 1) = 1
         ORDER BY nombre, apellido
     """)
+    unicos: list[dict] = []
+    vistos: set[str] = set()
+    for mozo in mozos:
+        nombre = str(mozo.get("nombre") or "").strip()
+        apellido = str(mozo.get("apellido") or "").strip()
+        clave = " ".join(f"{nombre} {apellido}".lower().split())
+        if not clave:
+            clave = f"id:{mozo.get('id_usuario')}"
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        unicos.append(mozo)
+    return unicos
 
 
 def get_personal(rol: str | None = None, active_only: bool = False) -> list[dict]:
@@ -1102,6 +1085,7 @@ def kds_status_class(minutes: int) -> str:
 
 
 def pedidos_cocina_detallados() -> list[dict]:
+    cutoff = active_order_cutoff()
     pedidos = rows("""
         SELECT pc.id_pedido,
                pc.fecha_hora,
@@ -1112,8 +1096,9 @@ def pedidos_cocina_detallados() -> list[dict]:
         JOIN mesas m ON m.id_mesa = pc.id_mesa
         JOIN usuarios u ON u.id_usuario = pc.id_usuario
         WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo')
+          AND pc.fecha_hora >= ?
         ORDER BY pc.fecha_hora ASC
-    """)
+    """, (cutoff,))
     if not pedidos:
         return []
     ids = tuple(int(p["id_pedido"]) for p in pedidos if p.get("id_pedido") is not None)
@@ -1146,6 +1131,7 @@ def pedidos_cocina_detallados() -> list[dict]:
 
 
 def resumen_chef() -> list[dict]:
+    cutoff = active_order_cutoff()
     return rows("""
         SELECT pm.nombre,
                SUM(pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) AS cantidad
@@ -1153,11 +1139,12 @@ def resumen_chef() -> list[dict]:
         JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
         JOIN productos_menu pm ON pm.id_producto = pd.id_producto
         WHERE pc.estado_comanda IN ('pendiente', 'en_cocina')
+          AND pc.fecha_hora >= ?
           AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
         GROUP BY pm.id_producto, pm.nombre
         ORDER BY cantidad DESC, pm.nombre
         LIMIT 12
-    """)
+    """, (cutoff,))
 
 
 def deshacer_ultimo_despacho() -> dict:
@@ -1595,9 +1582,53 @@ def generar_corte_caja(caja: dict) -> tuple[str, pd.DataFrame, pd.DataFrame]:
     return "\n".join(lineas), movimientos, medios
 
 
-def liberar_mesa_sin_cobro(id_mesa: int, motivo: str = "") -> None:
-    execute("UPDATE mesas SET estado = 'libre' WHERE id_mesa = ?", (id_mesa,))
-    registrar_auditoria("caja", "liberar_mesa_manual", f"{id_mesa} {motivo}".strip())
+def liberar_mesa_sin_cobro(id_mesa: int, motivo: str = "") -> dict:
+    """Cierra operativamente una mesa sin registrar venta.
+
+    Se usa para correcciones auditadas: consumos cargados por error, cambio de
+    mesa ya resuelto o liberacion administrativa. No deja pedidos activos.
+    """
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN TRANSACTION")
+        pedidos = conn.execute("""
+            SELECT id_pedido
+            FROM pedidos_cabecera
+            WHERE id_mesa = ?
+              AND estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
+        """, (id_mesa,)).fetchall()
+
+        for pedido in pedidos:
+            conn.execute("""
+                UPDATE pedido_detalle
+                   SET cantidad_anulada = cantidad,
+                       motivo_anulacion = TRIM(
+                           COALESCE(motivo_anulacion, '') || ' ' || ?
+                       )
+                 WHERE id_pedido = ?
+                   AND (cantidad - COALESCE(cantidad_cobrada, 0) - COALESCE(cantidad_anulada, 0)) > 0
+            """, (motivo or "Liberacion manual sin cobro", pedido["id_pedido"]))
+            conn.execute("""
+                UPDATE pedidos_cabecera
+                   SET estado_comanda = 'cobrado',
+                       medio_pago = 'sin_cobro',
+                       total_cobrado = 0,
+                       fecha_cobro = datetime('now','localtime')
+                 WHERE id_pedido = ?
+            """, (pedido["id_pedido"],))
+
+        conn.execute("UPDATE mesas SET estado = 'libre' WHERE id_mesa = ?", (id_mesa,))
+        conn.execute("COMMIT")
+        registrar_auditoria("caja", "liberar_mesa_manual", f"{id_mesa} {motivo}".strip())
+        return {"ok": True, "pedidos_cerrados": len(pedidos)}
+    except Exception as exc:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        return {"ok": False, "error": str(exc)}
+    finally:
+        conn.close()
 
 
 def cash_focus_script() -> None:
@@ -1617,6 +1648,14 @@ def cash_focus_script() -> None:
 
 def page_cocina() -> None:
     procesar_cola_sincronizacion()
+    cierre_vencidos = cerrar_pedidos_vencidos()
+    if cierre_vencidos.get("ok") and cierre_vencidos.get("cerrados"):
+        st.info(
+            f"Se cerraron {cierre_vencidos['cerrados']} comanda(s) vencida(s) "
+            f"y se liberaron {cierre_vencidos.get('mesas_liberadas', 0)} mesa(s)."
+        )
+    elif not cierre_vencidos.get("ok"):
+        st.warning(f"No se pudo cerrar comandas vencidas: {cierre_vencidos.get('error', 'error desconocido')}")
     offline_banner()
     title("Terminal de cocina", "Comandas vivas, tiempos y despacho tactil.")
     cocina_form_open = st.session_state.get("cocina_form_open", False)
@@ -1624,7 +1663,10 @@ def page_cocina() -> None:
     if refresh_seconds:
         auto_refresh(refresh_seconds)
 
-    pedidos = pedidos_cocina_detallados()
+    try:
+        pedidos = pedidos_cocina_detallados()
+    except Exception:
+        pedidos = []
     pendientes = [p for p in pedidos if p["estado_comanda"] == "pendiente"]
     en_cocina  = [p for p in pedidos if p["estado_comanda"] == "en_cocina"]
     listos     = [p for p in pedidos if p["estado_comanda"] == "listo"]
@@ -1635,7 +1677,11 @@ def page_cocina() -> None:
     m1.metric("Pendientes",      len(pendientes))
     m2.metric("En preparación",  len(en_cocina))
     m3.metric("Listos",          len(listos))
-    m4.metric("Platos activos",  sum(int(i["cantidad"]) for p in pendientes + en_cocina for i in p["items"]))
+    try:
+        platos_activos = sum(int(i["cantidad"]) for p in pendientes + en_cocina for i in p["items"])
+    except Exception:
+        platos_activos = 0
+    m4.metric("Platos activos",  platos_activos)
     m5.metric("Mayor espera", f"{max_pend}min" if max_pend else "—", delta_color="inverse" if max_pend > 15 else "off")
 
   # ── Chef view + controles ─────────────────────────────────────
@@ -2267,8 +2313,11 @@ def page_caja() -> None:
         with st.expander("Liberacion manual auditada"):
             motivo_liberar = st.text_input("Motivo para liberar sin cobrar", placeholder="Mesa cargada por error, cambio operativo...")
             if st.button("Liberar mesa manual", use_container_width=True, disabled=not motivo_liberar.strip()):
-                liberar_mesa_sin_cobro(mesa["id_mesa"], f"Mesa {mesa['numero_mesa']} motivo: {motivo_liberar.strip()}")
-                st.rerun()
+                res = liberar_mesa_sin_cobro(mesa["id_mesa"], f"Mesa {mesa['numero_mesa']} motivo: {motivo_liberar.strip()}")
+                if res["ok"]:
+                    st.success(f"Mesa liberada. {res['pedidos_cerrados']} pedido(s) cerrado(s) sin cobro.")
+                    st.rerun()
+                st.error(res["error"])
         cash_focus_script()
 
 
@@ -2622,6 +2671,7 @@ def page_usuarios() -> None:
 
 
 def pedidos_listos_mozo() -> list[dict]:
+    cutoff = active_order_cutoff()
     return rows("""
         SELECT pc.id_pedido,
                m.numero_mesa,
@@ -2632,13 +2682,15 @@ def pedidos_listos_mozo() -> list[dict]:
         JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
         JOIN productos_menu pm ON pm.id_producto = pd.id_producto
         WHERE pc.estado_comanda = 'listo'
+          AND pc.fecha_hora >= ?
           AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
         GROUP BY pc.id_pedido, m.numero_mesa, pc.fecha_hora
         ORDER BY pc.fecha_hora
-    """)
+    """, (cutoff,))
 
 
 def pedidos_mesa_resumen(id_mesa: int) -> list[dict]:
+    cutoff = active_order_cutoff()
     return rows("""
         SELECT pc.id_pedido,
                pc.estado_comanda,
@@ -2649,21 +2701,24 @@ def pedidos_mesa_resumen(id_mesa: int) -> list[dict]:
         JOIN productos_menu pm ON pm.id_producto = pd.id_producto
         WHERE pc.id_mesa = ?
           AND pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
+          AND pc.fecha_hora >= ?
           AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
         GROUP BY pc.id_pedido, pc.estado_comanda, pc.fecha_hora
         ORDER BY pc.fecha_hora DESC
         LIMIT 5
-    """, (id_mesa,))
+    """, (id_mesa, cutoff))
 
 
 def render_waiter_summary(mesas: list[dict], listos: list[dict], operativo: dict) -> None:
     libres = sum(1 for m in mesas if m["estado"] == "libre")
     ocupadas = sum(1 for m in mesas if m["estado"] == "ocupada")
     cuenta = sum(1 for m in mesas if m["estado"] == "esperando_cuenta")
+    nombre_mozo = f"{operativo.get('nombre', '')} {operativo.get('apellido', '')}".strip()
     st.markdown(
         f"""
         <div class="waiter-strip">
-            <div class="waiter-chip"><div class="waiter-chip-label">Mozo</div><div class="waiter-chip-value">{escape(operativo['nombre'])}</div></div>
+            <div class="waiter-chip"><div class="waiter-chip-label">Mozo</div><div class="waiter-chip-value">{escape(nombre_mozo or 'Sin asignar')}</div></div>
+            <div class="waiter-chip"><div class="waiter-chip-label">Libres</div><div class="waiter-chip-value">{libres}</div></div>
             <div class="waiter-chip"><div class="waiter-chip-label">Ocupadas</div><div class="waiter-chip-value">{ocupadas}</div></div>
             <div class="waiter-chip"><div class="waiter-chip-label">En cuenta</div><div class="waiter-chip-value">{cuenta}</div></div>
             <div class="waiter-chip"><div class="waiter-chip-label">Listos</div><div class="waiter-chip-value">{len(listos)}</div></div>
@@ -2676,6 +2731,15 @@ def render_waiter_summary(mesas: list[dict], listos: list[dict], operativo: dict
 
 
 def page_mozo() -> None:
+    cierre_vencidos = cerrar_pedidos_vencidos()
+    if cierre_vencidos.get("ok") and cierre_vencidos.get("cerrados"):
+        st.info(
+            f"Se cerraron {cierre_vencidos['cerrados']} comanda(s) vencida(s) "
+            f"y se liberaron {cierre_vencidos.get('mesas_liberadas', 0)} mesa(s)."
+        )
+    elif not cierre_vencidos.get("ok"):
+        st.warning(f"No se pudo cerrar comandas vencidas: {cierre_vencidos.get('error', 'error desconocido')}")
+
     # ── Notificacion push: pedidos listos desde cocina ────────────────
     from datetime import datetime as _dt, timedelta as _td
     _corte = (_dt.now() - _td(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
@@ -2702,25 +2766,56 @@ def page_mozo() -> None:
 
     if st.session_state.mesa_actual is None:
         title("Terminal de mozo", "Mesas, pedidos, entrega y cuenta en modo tactil.")
-        if len(mozos) > 1:
-            ids = [m["id_usuario"] for m in mozos]
-            current_index = ids.index(operativo["id_usuario"]) if operativo["id_usuario"] in ids else 0
-            elegido = st.selectbox(
-                "Mozo operativo",
-                mozos,
-                index=current_index,
-                format_func=lambda m: f"{m['nombre']} {m['apellido']}",
-                help="Identifica quien toma el pedido.",
-            )
-            st.session_state.mozo_operativo_id = elegido["id_usuario"]
-            operativo = elegido
+        with st.container(border=True):
+            st.markdown('<div class="waiter-control-title">Mozo operativo</div>', unsafe_allow_html=True)
+            if len(mozos) > 1:
+                if len(mozos) <= 4:
+                    cols_mozo = st.columns(len(mozos))
+                    for idx, mozo in enumerate(mozos):
+                        nombre = f"{mozo['nombre']} {mozo['apellido']}".strip()
+                        activo = int(mozo["id_usuario"]) == int(operativo["id_usuario"])
+                        with cols_mozo[idx]:
+                            if st.button(
+                                nombre,
+                                key=f"mozo_operativo_btn_{mozo['id_usuario']}",
+                                type="primary" if activo else "secondary",
+                                use_container_width=True,
+                            ):
+                                st.session_state.mozo_operativo_id = mozo["id_usuario"]
+                                operativo = mozo
+                                st.rerun()
+                else:
+                    ids = [m["id_usuario"] for m in mozos]
+                    current_index = ids.index(operativo["id_usuario"]) if operativo["id_usuario"] in ids else 0
+                    elegido = st.selectbox(
+                        "Elegir mozo",
+                        mozos,
+                        index=current_index,
+                        format_func=lambda m: f"{m['nombre']} {m['apellido']}",
+                        help="Identifica quien toma el pedido.",
+                    )
+                    st.session_state.mozo_operativo_id = elegido["id_usuario"]
+                    operativo = elegido
+            else:
+                st.markdown(
+                    f"<div class='waiter-helper'>{escape(operativo['nombre'])} {escape(operativo['apellido'])}</div>",
+                    unsafe_allow_html=True,
+                )
 
         mesas = mesas_para_caja()
         listos = pedidos_listos_mozo()
         render_waiter_summary(mesas, listos, operativo)
 
         if listos:
-            st.subheader("Pedidos listos")
+            st.markdown(
+                f"""
+                <div class="ready-title">
+                    <h3>Pedidos listos</h3>
+                    <span class="muted">{len(listos)} para entregar</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
             ready_cols = st.columns(2)
             for idx, pedido in enumerate(listos):
                 with ready_cols[idx % 2]:
@@ -2741,13 +2836,16 @@ def page_mozo() -> None:
                             st.rerun()
                         st.error(res["error"])
 
-        filtro_estado = st.radio(
-            "Filtro de mesas",
-            ["Todas", "Libres", "Ocupadas", "En cuenta"],
-            index=0,
-            horizontal=True,
-            label_visibility="collapsed",
-        )
+        filtros_col, buscar_col = st.columns([1.6, 1], gap="large")
+        with filtros_col:
+            filtro_estado = st.radio(
+                "Filtro de mesas",
+                ["Todas", "Libres", "Ocupadas", "En cuenta"],
+                index=0,
+                horizontal=True,
+            )
+        with buscar_col:
+            buscar_mesa = st.text_input("Buscar mesa", placeholder="Numero de mesa").strip()
         mapa_filtro = {
             "Libres": "libre",
             "Ocupadas": "ocupada",
@@ -2755,8 +2853,26 @@ def page_mozo() -> None:
         }
         if filtro_estado != "Todas":
             mesas = [m for m in mesas if m["estado"] == mapa_filtro[filtro_estado]]
+        if buscar_mesa:
+            mesas = [m for m in mesas if buscar_mesa in str(m["numero_mesa"])]
 
-        st.subheader("Salon")
+        st.markdown(
+            """
+            <div class="salon-head">
+                <div class="salon-title">Salon</div>
+                <div class="salon-legend">
+                    <span class="legend-dot">Libre</span>
+                    <span class="legend-dot busy">Ocupada</span>
+                    <span class="legend-dot bill">En cuenta</span>
+                    <span class="legend-dot reserved">Reservada</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if not mesas:
+            st.info("No hay mesas para este filtro.")
+            return
         for i in range(0, len(mesas), 4):
             cols = st.columns(4)
             for col, mesa in zip(cols, mesas[i:i + 4]):
@@ -2799,6 +2915,10 @@ def page_mozo() -> None:
 
     mesa = st.session_state.mesa_actual
     title(f"Pedido mesa {mesa['numero_mesa']}", "Productos, cantidades y notas para cocina.")
+    if st.button("Volver al salon", use_container_width=False):
+        st.session_state.mesa_actual = None
+        st.session_state.cart = {}
+        st.rerun()
     pedidos_previos = pedidos_mesa_resumen(mesa["id_mesa"])
     if pedidos_previos:
         with st.expander("Pedidos activos de esta mesa", expanded=False):
@@ -2811,14 +2931,27 @@ def page_mozo() -> None:
     left, right = st.columns([1.62, 0.88], gap="large")
     menu = get_menu()
     with left:
-        from components.categorias import CATEGORIAS_MENU
+        from components.categorias import CATEGORIAS_MENU, CATEGORIAS_LEGACY
         filtro = st.text_input("Buscar producto", placeholder="Escribi nombre del plato...").strip().lower()
         if filtro:
             _resultados = [p for p in menu if filtro in p["nombre"].lower()]
             if len(_resultados) > 0:
                 st.caption(f"{len(_resultados)} resultado(s) para '{filtro}'")
-        tabs = st.tabs(CATEGORIAS_MENU)
-        for tab, cat in zip(tabs, CATEGORIAS_MENU):
+        categorias_ordenadas = [
+            cat
+            for cat in CATEGORIAS_MENU + CATEGORIAS_LEGACY
+            if any(p["categoria"] == cat for p in menu)
+        ]
+        categorias_extra = sorted({
+            str(p["categoria"])
+            for p in menu
+            if p["categoria"] not in set(CATEGORIAS_MENU + CATEGORIAS_LEGACY)
+        })
+        categorias_visibles = categorias_ordenadas + categorias_extra
+        if not categorias_visibles:
+            st.info("No hay productos activos en el menu.")
+        tabs = st.tabs(categorias_visibles) if categorias_visibles else []
+        for tab, cat in zip(tabs, categorias_visibles):
             with tab:
                 productos = [p for p in menu if p["categoria"] == cat and (not filtro or filtro in p["nombre"].lower())]
                 if not productos:
@@ -2856,45 +2989,46 @@ def page_mozo() -> None:
                             st.markdown("<div class='muted' style='padding-top:.8rem'>Sin nota</div>", unsafe_allow_html=True)
 
     with right:
-        st.markdown("<div class='cart-title'>Pedido actual</div>", unsafe_allow_html=True)
-        total = 0.0
-        if not st.session_state.cart:
-            st.info("Agrega productos con el boton +.")
-        for pid, item in list(st.session_state.cart.items()):
-            importe = int(item["cantidad"]) * float(item["precio"])
-            total += importe
+        with st.container(border=True):
+            items_total = sum(int(item["cantidad"]) for item in st.session_state.cart.values())
             st.markdown(
-                f"<div class='line'><span><b>{item['cantidad']}x</b> {escape(item['nombre'])}<br><span class='muted'>{escape(item.get('observaciones') or 'Sin observaciones')}</span></span><b>{money(importe)}</b></div>",
+                f"<div class='cart-title'>Pedido actual <span class='muted'>({items_total} items)</span></div>",
                 unsafe_allow_html=True,
             )
-            note_cols = st.columns(2)
-            for label in ["Sin cebolla", "Sin sal", "Bien cocido", "Para llevar"]:
-                idx = ["Sin cebolla", "Sin sal", "Bien cocido", "Para llevar"].index(label)
-                if note_cols[idx % 2].button(label, key=f"mozo2_note_preset_{pid}_{idx}", use_container_width=True):
-                    current = st.session_state.cart[pid].get("observaciones", "").strip()
-                    st.session_state.cart[pid]["observaciones"] = f"{current}; {label}".strip("; ")
+            total = 0.0
+            if not st.session_state.cart:
+                st.markdown("<div class='cart-empty'>Agrega productos con el boton +.</div>", unsafe_allow_html=True)
+            for pid, item in list(st.session_state.cart.items()):
+                importe = int(item["cantidad"]) * float(item["precio"])
+                total += importe
+                st.markdown(
+                    f"<div class='line'><span><b>{item['cantidad']}x</b> {escape(item['nombre'])}<br><span class='muted'>{escape(item.get('observaciones') or 'Sin observaciones')}</span></span><b>{money(importe)}</b></div>",
+                    unsafe_allow_html=True,
+                )
+                note_cols = st.columns(2)
+                presets = ["Sin cebolla", "Sin sal", "Bien cocido", "Para llevar"]
+                for idx, label in enumerate(presets):
+                    if note_cols[idx % 2].button(label, key=f"mozo2_note_preset_{pid}_{idx}", use_container_width=True):
+                        current = st.session_state.cart[pid].get("observaciones", "").strip()
+                        st.session_state.cart[pid]["observaciones"] = f"{current}; {label}".strip("; ")
+                        st.rerun()
+                if st.button("Quitar producto", key=f"mozo2_remove_{pid}", use_container_width=True):
+                    st.session_state.cart.pop(pid, None)
                     st.rerun()
-            if st.button("Quitar producto", key=f"mozo2_remove_{pid}", use_container_width=True):
-                st.session_state.cart.pop(pid, None)
-                st.rerun()
-        st.markdown(f"<div class='total'><span>Total pedido</span><span>{money(total)}</span></div>", unsafe_allow_html=True)
-        if st.button("Enviar a cocina", type="primary", disabled=not st.session_state.cart, use_container_width=True):
-            try:
-                pedido = crear_pedido(mesa["id_mesa"], operativo["id_usuario"], st.session_state.cart)
-                registrar_auditoria("mozo", "pedido_creado", f"Pedido {pedido}, mesa {mesa['numero_mesa']}")
-                st.success(f"Pedido #{pedido} enviado a cocina.")
-                st.session_state.mesa_actual = None
+            st.markdown(f"<div class='total'><span>Total pedido</span><span>{money(total)}</span></div>", unsafe_allow_html=True)
+            if st.button("Enviar a cocina", type="primary", disabled=not st.session_state.cart, use_container_width=True):
+                try:
+                    pedido = crear_pedido(mesa["id_mesa"], operativo["id_usuario"], st.session_state.cart)
+                    registrar_auditoria("mozo", "pedido_creado", f"Pedido {pedido}, mesa {mesa['numero_mesa']}")
+                    st.success(f"Pedido #{pedido} enviado a cocina.")
+                    st.session_state.mesa_actual = None
+                    st.session_state.cart = {}
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
+            if st.button("Vaciar pedido", disabled=not st.session_state.cart, use_container_width=True):
                 st.session_state.cart = {}
                 st.rerun()
-            except Exception as exc:
-                st.error(str(exc))
-        if st.button("Vaciar pedido", disabled=not st.session_state.cart, use_container_width=True):
-            st.session_state.cart = {}
-            st.rerun()
-        if st.button("Volver al salon", use_container_width=True):
-            st.session_state.mesa_actual = None
-            st.session_state.cart = {}
-            st.rerun()
 
 
 
@@ -3128,7 +3262,16 @@ def page_mesas() -> None:
         estado = st.selectbox("Nuevo estado", ["libre", "ocupada", "esperando_cuenta"])
         if st.button("Cambiar estado", use_container_width=True):
             if mesa_accion is not None:
-                execute("UPDATE mesas SET estado = ? WHERE id_mesa = ?", (estado, mesa_accion["id_mesa"]))
+                if estado == "libre":
+                    res = liberar_mesa_sin_cobro(
+                        mesa_accion["id_mesa"],
+                        f"Mesa {mesa_accion['numero_mesa']} cambio manual a libre",
+                    )
+                    if not res["ok"]:
+                        st.error(res["error"])
+                        return
+                else:
+                    execute("UPDATE mesas SET estado = ? WHERE id_mesa = ?", (estado, mesa_accion["id_mesa"]))
                 registrar_auditoria("mesas", "cambio_estado", f"{mesa_accion['numero_mesa']} {estado}")
                 st.rerun()
 
@@ -3922,117 +4065,69 @@ def page_panel() -> None:
     except Exception:
         pass
 
-    st.markdown(
-        f"""
-        <div class="panel-overview">
-            <div>
-                <div class="panel-overview-label">Hoy</div>
-                <div class="panel-overview-title">{datetime.now():%d/%m/%Y}</div>
-            </div>
-            <div class="panel-overview-chip">Caja {'abierta' if caja else 'cerrada'}</div>
-            <div class="panel-overview-chip">Cocina {(pedidos['pendientes'] or 0) + (pedidos['cocina'] or 0)} activos</div>
-            <div class="panel-overview-chip">Salon {(estados['ocupadas'] or 0) + (estados['cuenta'] or 0)} mesas en uso</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    top_a = st.columns(5)
-    with top_a[0]:
+    top = st.columns(9)
+    with top[0]:
         stat_card("Libres", estados["libres"] or 0, "#2e7d50")
-    with top_a[1]:
+    with top[1]:
         stat_card("Ocupadas", estados["ocupadas"] or 0, "#285f83")
-    with top_a[2]:
+    with top[2]:
         stat_card("En cuenta", estados["cuenta"] or 0, "#b87419")
-    with top_a[3]:
+    with top[3]:
         stat_card("Cocina", (pedidos["pendientes"] or 0) + (pedidos["cocina"] or 0), "#9f2f24")
-    with top_a[4]:
-        stat_card("Ventas hoy", money(ventas_hoy), "#1565c0")
-
-    top_b = st.columns(4)
-    with top_b[0]:
+    with top[4]:
         stat_card("Listos", pedidos["listos"] or 0, "#2e7d50")
-    with top_b[1]:
+    with top[5]:
         stat_card("Stock bajo", stock_bajo or 0, "#b33a34")
-    with top_b[2]:
+    with top[6]:
+        stat_card("Ventas hoy", money(ventas_hoy), "#1565c0")
+    with top[7]:
         stat_card("En turno", turnos_activos or 0, "#2e7d32")
-    with top_b[3]:
+    with top[8]:
         stat_card("Reservas", reservas_hoy or 0, "#7b1fa2")
 
+    # Alertas
     alerts = []
     if stock_bajo:
-        alerts.append(f"{stock_bajo} insumo(s) con stock bajo")
+        alerts.append(f"🔴 {stock_bajo} insumo(s) con stock bajo")
     if pedidos.get("listos"):
-        alerts.append(f"{pedidos['listos']} pedido(s) listos para servir")
+        alerts.append(f"🟡 {pedidos['listos']} pedido(s) listos para servir")
     if reservas_hoy:
-        alerts.append(f"{reservas_hoy} reserva(s) confirmadas para hoy")
+        alerts.append(f"🟣 {reservas_hoy} reserva(s) confirmadas para hoy")
     if not caja:
-        alerts.append("Caja cerrada: abrir desde el modulo Caja")
+        alerts.append("⚪ Caja cerrada — abrir desde el modulo Caja")
     if alerts:
-        st.markdown(
-            "<div class='panel-alerts'>" + "".join(f"<span>{escape(a)}</span>" for a in alerts) + "</div>",
-            unsafe_allow_html=True,
-        )
+        for a in alerts:
+            st.caption(a)
 
     staff = pd.DataFrame(rows("""
         SELECT rol, COUNT(*) AS activos
-        FROM (
-            SELECT DISTINCT
-                   TRIM(LOWER(rol)) AS rol,
-                   TRIM(LOWER(nombre)) AS nombre,
-                   TRIM(LOWER(apellido)) AS apellido
-            FROM usuarios
-            WHERE COALESCE(activo, 1) = 1
-        ) personal_unico
+        FROM usuarios WHERE COALESCE(activo, 1) = 1
         GROUP BY rol ORDER BY rol
     """))
     caja_texto = "Cerrada"
-    caja_detalle = "Abrir caja para comenzar a registrar cobros."
     if caja:
-        caja_texto = f"Abierta #{caja['id_caja']}"
-        caja_detalle = f"Ventas acumuladas: {money(caja['monto_ventas'])}"
+        caja_texto = f"Abierta #{caja['id_caja']} | Ventas {money(caja['monto_ventas'])}"
 
-    col_a, col_b, col_c = st.columns([1.08, 1.08, 1], gap="large")
+    col_a, col_b, col_c = st.columns([1.15, 1.15, 1])
     with col_a:
-        staff_rows = ""
-        if not staff.empty:
-            for _, r in staff.iterrows():
-                staff_rows += f"<div class='panel-list-row'><span>{escape(role_label(str(r['rol'])))}</span><b>{int(r['activos'])}</b></div>"
+        st.subheader("Personal activo")
+        if staff.empty:
+            st.info("Sin personal activo.")
         else:
-            staff_rows = "<div class='panel-empty'>Sin personal activo.</div>"
-        st.markdown(
-            f"""
-            <div class="panel-card">
-                <div class="panel-card-title">Personal activo</div>
-                {staff_rows}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            st.dataframe(staff, hide_index=True, use_container_width=True)
     with col_b:
-        st.markdown(
-            f"""
-            <div class="panel-card">
-                <div class="panel-card-title">Caja</div>
-                <div class="panel-status-value">{escape(caja_texto)}</div>
-                <div class="panel-status-detail">{escape(caja_detalle)}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.subheader("Caja")
+        st.markdown(f"<div class='card'><b>{escape(caja_texto)}</b><br><span class='muted'>Apertura, egresos y cierres se gestionan desde Caja.</span></div>", unsafe_allow_html=True)
     with col_c:
-        st.markdown(
-            f"""
-            <div class="panel-card">
-                <div class="panel-card-title">Cocina</div>
-                <div class="panel-list-row"><span>Pendientes</span><b>{pedidos['pendientes'] or 0}</b></div>
-                <div class="panel-list-row"><span>En preparacion</span><b>{pedidos['cocina'] or 0}</b></div>
-                <div class="panel-list-row"><span>Listos</span><b>{pedidos['listos'] or 0}</b></div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.subheader("Cocina")
+        st.markdown(f"""
+            <div class="card">
+                <div class="line"><span>Pendientes</span><b>{pedidos['pendientes'] or 0}</b></div>
+                <div class="line"><span>En preparacion</span><b>{pedidos['cocina'] or 0}</b></div>
+                <div class="line"><span>Listos</span><b>{pedidos['listos'] or 0}</b></div>
+            </div>""", unsafe_allow_html=True)
 
+    # Mesas activas
     mesas_activas = pd.DataFrame(rows("""
         SELECT m.numero_mesa AS mesa, m.estado,
                COUNT(DISTINCT pc.id_pedido) AS pedidos,
@@ -4048,12 +4143,10 @@ def page_panel() -> None:
     """))
     if not mesas_activas.empty:
         mesas_activas["total_est."] = mesas_activas["subtotal"].apply(lambda v: float(v) + service_amount(float(v)))
-        mesas_vista = mesas_activas.copy()
-        mesas_vista["subtotal"] = mesas_vista["subtotal"].apply(money)
-        mesas_vista["total_est."] = mesas_vista["total_est."].apply(money)
-        st.markdown("<div class='panel-section-title'>Mesas activas</div>", unsafe_allow_html=True)
-        st.dataframe(mesas_vista, hide_index=True, use_container_width=True)
+        st.subheader("Mesas activas")
+        st.dataframe(mesas_activas, hide_index=True, use_container_width=True)
 
+    # Pedidos recientes
     pedidos_recientes = pd.DataFrame(rows("""
         SELECT pc.id_pedido, m.numero_mesa, pc.estado_comanda,
                pc.fecha_hora, u.nombre || ' ' || u.apellido AS mozo
@@ -4064,18 +4157,19 @@ def page_panel() -> None:
         ORDER BY pc.fecha_hora DESC LIMIT 15
     """))
     if not pedidos_recientes.empty:
-        with st.expander("Pedidos recientes", expanded=False):
+        with st.expander("Pedidos recientes"):
             st.dataframe(pedidos_recientes, hide_index=True, use_container_width=True)
 
+    # Ultimos eventos
     eventos = pd.DataFrame(rows("""
         SELECT fecha_hora, modulo, accion, detalle
         FROM auditoria_eventos ORDER BY fecha_hora DESC LIMIT 20
     """))
-    st.markdown("<div class='panel-section-title'>Ultimos eventos</div>", unsafe_allow_html=True)
+    st.subheader("Ultimos eventos")
     st.dataframe(eventos, hide_index=True, use_container_width=True)
 
     pdf = _pdf_panel(estados, pedidos, caja, stock_bajo, ventas_hoy, turnos_activos, staff, mesas_activas, eventos, reservas_hoy)
-    st.download_button("Descargar resumen PDF", pdf,
+    st.download_button("📄 Descargar resumen PDF", pdf,
                        file_name=f"panel_{datetime.now():%Y%m%d_%H%M}.pdf",
                        mime="application/pdf", use_container_width=True)
 

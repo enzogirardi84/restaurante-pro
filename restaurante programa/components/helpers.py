@@ -16,7 +16,7 @@ import plotly.express as px
 import streamlit as st
 
 from database import (
-    DB_PATH, avanzar_estado, database_label, get_connection, init_db,
+    DB_PATH, active_order_cutoff, avanzar_estado, database_label, get_connection, init_db,
     marcar_pedido_entregado, obtener_pedidos_por_estado, registrar_auditoria, using_postgres,
 )
 from cloud_config import app_name, cloud_status, database_url_warnings, default_service_percentage, masked_status_table
@@ -706,6 +706,7 @@ def kds_priority_score(minutes: int, estado: str = "pendiente") -> float:
 
 
 def pedidos_cocina_detallados() -> list[dict]:
+    cutoff = active_order_cutoff()
     pedidos = rows("""
         SELECT pc.id_pedido,
                pc.fecha_hora,
@@ -716,8 +717,9 @@ def pedidos_cocina_detallados() -> list[dict]:
          JOIN mesas m ON m.id_mesa = pc.id_mesa
          JOIN usuarios u ON u.id_usuario = pc.id_usuario
          WHERE TRIM(LOWER(pc.estado_comanda)) IN ('pendiente', 'en_cocina', 'listo')
+           AND pc.fecha_hora >= ?
          ORDER BY pc.fecha_hora ASC
-    """)
+    """, (cutoff,))
     if not pedidos:
         return []
     ids = tuple(int(p["id_pedido"]) for p in pedidos)
@@ -749,6 +751,7 @@ def pedidos_cocina_detallados() -> list[dict]:
 
 
 def resumen_chef() -> list[dict]:
+    cutoff = active_order_cutoff()
     return rows("""
         SELECT pm.nombre,
                SUM(pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) AS cantidad
@@ -756,11 +759,12 @@ def resumen_chef() -> list[dict]:
         JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
         JOIN productos_menu pm ON pm.id_producto = pd.id_producto
         WHERE pc.estado_comanda IN ('pendiente', 'en_cocina')
+          AND pc.fecha_hora >= ?
           AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
         GROUP BY pm.id_producto, pm.nombre
         ORDER BY cantidad DESC, pm.nombre
         LIMIT 12
-    """)
+    """, (cutoff,))
 
 
 def deshacer_ultimo_despacho() -> dict:
@@ -1198,9 +1202,53 @@ def generar_corte_caja(caja: dict) -> tuple[str, pd.DataFrame, pd.DataFrame]:
     return "\n".join(lineas), movimientos, medios
 
 
-def liberar_mesa_sin_cobro(id_mesa: int, motivo: str = "") -> None:
-    execute("UPDATE mesas SET estado = 'libre' WHERE id_mesa = ?", (id_mesa,))
-    registrar_auditoria("caja", "liberar_mesa_manual", f"{id_mesa} {motivo}".strip())
+def liberar_mesa_sin_cobro(id_mesa: int, motivo: str = "") -> dict:
+    """Cierra operativamente una mesa sin registrar venta.
+
+    Se usa para correcciones auditadas: consumos cargados por error, cambio de
+    mesa ya resuelto o liberacion administrativa. No deja pedidos activos.
+    """
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN TRANSACTION")
+        pedidos = conn.execute("""
+            SELECT id_pedido
+            FROM pedidos_cabecera
+            WHERE id_mesa = ?
+              AND estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
+        """, (id_mesa,)).fetchall()
+
+        for pedido in pedidos:
+            conn.execute("""
+                UPDATE pedido_detalle
+                   SET cantidad_anulada = cantidad,
+                       motivo_anulacion = TRIM(
+                           COALESCE(motivo_anulacion, '') || ' ' || ?
+                       )
+                 WHERE id_pedido = ?
+                   AND (cantidad - COALESCE(cantidad_cobrada, 0) - COALESCE(cantidad_anulada, 0)) > 0
+            """, (motivo or "Liberacion manual sin cobro", pedido["id_pedido"]))
+            conn.execute("""
+                UPDATE pedidos_cabecera
+                   SET estado_comanda = 'cobrado',
+                       medio_pago = 'sin_cobro',
+                       total_cobrado = 0,
+                       fecha_cobro = datetime('now','localtime')
+                 WHERE id_pedido = ?
+            """, (pedido["id_pedido"],))
+
+        conn.execute("UPDATE mesas SET estado = 'libre' WHERE id_mesa = ?", (id_mesa,))
+        conn.execute("COMMIT")
+        registrar_auditoria("caja", "liberar_mesa_manual", f"{id_mesa} {motivo}".strip())
+        return {"ok": True, "pedidos_cerrados": len(pedidos)}
+    except Exception as exc:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        return {"ok": False, "error": str(exc)}
+    finally:
+        conn.close()
 
 
 def cash_focus_script() -> None:
@@ -1219,6 +1267,7 @@ def cash_focus_script() -> None:
 
 
 def pedidos_listos_mozo() -> list[dict]:
+    cutoff = active_order_cutoff()
     return rows("""
         SELECT pc.id_pedido,
                m.numero_mesa,
@@ -1229,13 +1278,15 @@ def pedidos_listos_mozo() -> list[dict]:
         JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
         JOIN productos_menu pm ON pm.id_producto = pd.id_producto
         WHERE TRIM(LOWER(pc.estado_comanda)) = 'listo'
+          AND pc.fecha_hora >= ?
           AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
         GROUP BY pc.id_pedido, m.numero_mesa, pc.fecha_hora
         ORDER BY pc.fecha_hora
-    """)
+    """, (cutoff,))
 
 
 def pedidos_mesa_resumen(id_mesa: int) -> list[dict]:
+    cutoff = active_order_cutoff()
     return rows("""
         SELECT pc.id_pedido,
                pc.estado_comanda,
@@ -1246,11 +1297,12 @@ def pedidos_mesa_resumen(id_mesa: int) -> list[dict]:
         JOIN productos_menu pm ON pm.id_producto = pd.id_producto
         WHERE pc.id_mesa = ?
           AND pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
+          AND pc.fecha_hora >= ?
           AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
         GROUP BY pc.id_pedido, pc.estado_comanda, pc.fecha_hora
         ORDER BY pc.fecha_hora DESC
         LIMIT 5
-    """, (id_mesa,))
+    """, (id_mesa, cutoff))
 
 
 def render_waiter_summary(mesas: list[dict], listos: list[dict], operativo: dict) -> None:

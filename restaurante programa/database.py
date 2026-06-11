@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,10 @@ PK_BY_TABLE = {
     "pagos_mesa": "id_pago",
     "insumos": "id_insumo",
 }
+
+ACTIVE_ORDER_STATES = ("pendiente", "en_cocina", "listo", "entregado")
+KITCHEN_ORDER_STATES = ("pendiente", "en_cocina", "listo")
+STALE_ACTIVE_ORDER_HOURS = 18
 
 # ── Cola de sincronización offline ────────────────────────────────────
 
@@ -224,6 +229,92 @@ def database_label() -> str:
 
 def get_db_type() -> str:
     return "postgres" if using_postgres() else "sqlite"
+
+
+def active_order_cutoff(hours: int = STALE_ACTIVE_ORDER_HOURS) -> str:
+    """Timestamp limite para considerar viva una comanda operativa."""
+    return (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def cerrar_pedidos_vencidos(hours: int = STALE_ACTIVE_ORDER_HOURS) -> dict:
+    """Cierra comandas activas demasiado antiguas y libera sus mesas.
+
+    Evita que pedidos de dias anteriores sigan bloqueando Mozo/Cocina. Se marca
+    como cobrado sin importe para no sumarlo a ventas y se anulan cantidades
+    pendientes con motivo auditable.
+    """
+    cutoff = active_order_cutoff(hours)
+    now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN TRANSACTION")
+        pedidos = conn.execute("""
+            SELECT id_pedido, id_mesa
+              FROM pedidos_cabecera
+             WHERE estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
+               AND fecha_hora < ?
+        """, (cutoff,)).fetchall()
+        if not pedidos:
+            conn.commit()
+            return {"ok": True, "cerrados": 0, "mesas_liberadas": 0}
+
+        mesas_afectadas = sorted({int(p["id_mesa"]) for p in pedidos if p["id_mesa"] is not None})
+        motivo = f"Cierre automatico por antiguedad mayor a {hours} horas"
+        for pedido in pedidos:
+            conn.execute("""
+                UPDATE pedido_detalle
+                   SET cantidad_anulada = CASE
+                           WHEN COALESCE(cantidad_anulada, 0) < cantidad THEN cantidad
+                           ELSE cantidad_anulada
+                       END,
+                       motivo_anulacion = CASE
+                           WHEN COALESCE(motivo_anulacion, '') = '' THEN ?
+                           ELSE motivo_anulacion
+                       END
+                 WHERE id_pedido = ?
+            """, (motivo, pedido["id_pedido"]))
+            conn.execute("""
+                UPDATE pedidos_cabecera
+                   SET estado_comanda = 'cobrado',
+                       medio_pago = 'cierre_automatico',
+                       total_cobrado = 0,
+                       fecha_cobro = ?
+                 WHERE id_pedido = ?
+            """, (now_text, pedido["id_pedido"]))
+
+        mesas_liberadas = 0
+        for id_mesa in mesas_afectadas:
+            activo = conn.execute("""
+                SELECT 1
+                  FROM pedidos_cabecera
+                 WHERE id_mesa = ?
+                   AND estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
+                 LIMIT 1
+            """, (id_mesa,)).fetchone()
+            if not activo:
+                cur = conn.execute("UPDATE mesas SET estado = 'libre' WHERE id_mesa = ?", (id_mesa,))
+                mesas_liberadas += max(int(getattr(cur, "rowcount", 0) or 0), 0)
+
+        try:
+            conn.execute("""
+                INSERT INTO auditoria_eventos (modulo, accion, detalle)
+                VALUES (?, ?, ?)
+            """, ("sistema", "cierre_pedidos_vencidos", f"{len(pedidos)} pedidos antes de {cutoff}"))
+        except Exception:
+            pass
+        conn.commit()
+        return {"ok": True, "cerrados": len(pedidos), "mesas_liberadas": mesas_liberadas}
+    except Exception as exc:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        return {"ok": False, "cerrados": 0, "mesas_liberadas": 0, "error": str(exc)}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def execute_query(sql: str, params: tuple = (), fetch: bool = False) -> list[dict] | None:
@@ -707,10 +798,8 @@ def _seed_sqlite_local() -> None:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.row_factory = sqlite3.Row
         count = conn.execute("SELECT COUNT(*) AS cnt FROM usuarios").fetchone()["cnt"]
-        if count > 0:
-            conn.close()
-            return
-        _seed_inserts(conn)
+        if count == 0:
+            _seed_inserts(conn)
         _ensure_operational_schema(conn)
         conn.close()
     except Exception as exc:
@@ -721,6 +810,76 @@ def _seed_sqlite_local() -> None:
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
     cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return any(c["name"] == column for c in cols)
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _ensure_product_menu_schema(conn: sqlite3.Connection) -> None:
+    """Repara productos_menu si fue importada sin primary key.
+
+    SQLite exige que una columna referenciada por foreign key sea PRIMARY KEY
+    o UNIQUE. Si productos_menu viene de un import/backup con id_producto como
+    INTEGER simple, crear pedidos falla con "foreign key mismatch".
+    """
+    if not _table_exists(conn, "productos_menu"):
+        return
+
+    cols = conn.execute("PRAGMA table_info(productos_menu)").fetchall()
+    id_col = next((c for c in cols if c["name"] == "id_producto"), None)
+    if id_col and int(id_col["pk"] or 0) == 1:
+        return
+
+    rows_to_copy = conn.execute("""
+        SELECT id_producto, nombre, precio_venta, categoria, activo
+        FROM productos_menu
+        ORDER BY COALESCE(id_producto, rowid)
+    """).fetchall()
+
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.executescript("""
+        DROP TABLE IF EXISTS productos_menu_rebuild;
+        CREATE TABLE productos_menu_rebuild (
+            id_producto  INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre       TEXT NOT NULL DEFAULT '',
+            precio_venta REAL NOT NULL DEFAULT 0 CHECK (precio_venta >= 0),
+            categoria    TEXT NOT NULL DEFAULT 'cocina',
+            activo       INTEGER NOT NULL DEFAULT 1
+        );
+    """)
+
+    used_ids: set[int] = set()
+    for row in rows_to_copy:
+        raw_id = row["id_producto"]
+        nombre = row["nombre"] or "Producto"
+        precio = float(row["precio_venta"] or 0)
+        categoria = row["categoria"] or "cocina"
+        activo = 1 if row["activo"] is None else int(row["activo"])
+        if raw_id is not None and int(raw_id) > 0 and int(raw_id) not in used_ids:
+            conn.execute("""
+                INSERT INTO productos_menu_rebuild
+                    (id_producto, nombre, precio_venta, categoria, activo)
+                VALUES (?, ?, ?, ?, ?)
+            """, (int(raw_id), nombre, precio, categoria, activo))
+            used_ids.add(int(raw_id))
+        else:
+            conn.execute("""
+                INSERT INTO productos_menu_rebuild
+                    (nombre, precio_venta, categoria, activo)
+                VALUES (?, ?, ?, ?)
+            """, (nombre, precio, categoria, activo))
+
+    conn.executescript("""
+        DROP TABLE productos_menu;
+        ALTER TABLE productos_menu_rebuild RENAME TO productos_menu;
+    """)
+    conn.execute("PRAGMA foreign_keys=ON")
 
 
 def _ensure_user_role_schema(conn: sqlite3.Connection) -> None:
@@ -736,7 +895,7 @@ def _ensure_user_role_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE usuarios ADD COLUMN mail TEXT")
     if not _column_exists(conn, "usuarios", "contrasena"):
         conn.execute("ALTER TABLE usuarios ADD COLUMN contrasena TEXT")
-    if not _column_exists(conn, "movimientos_caja", "tipo_movimiento"):
+    if _table_exists(conn, "movimientos_caja") and not _column_exists(conn, "movimientos_caja", "tipo_movimiento"):
         conn.execute("ALTER TABLE movimientos_caja ADD COLUMN tipo_movimiento TEXT NOT NULL DEFAULT 'ingreso_venta'")
     if not _column_exists(conn, "insumos", "precio"):
         conn.execute("ALTER TABLE insumos ADD COLUMN precio REAL NOT NULL DEFAULT 0")
@@ -820,9 +979,10 @@ def _ensure_user_role_schema(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys=ON")
 
 
-def _ensure_operational_schema(conn: sqlite3.Connection) -> None:
+def _ensure_operational_schema(conn: sqlite3.Connection, *, seed_premium_menu: bool = True) -> None:
     """Aplica las migraciones minimas que comparten caja, reportes y pedidos."""
     _ensure_user_role_schema(conn)
+    _ensure_product_menu_schema(conn)
 
     if not _column_exists(conn, "usuarios", "pin"):
         conn.execute("ALTER TABLE usuarios ADD COLUMN pin TEXT DEFAULT '0000'")
@@ -1062,7 +1222,8 @@ def _ensure_operational_schema(conn: sqlite3.Connection) -> None:
             (clave, valor),
         )
 
-    seed_menu_premium()
+    if seed_premium_menu:
+        seed_menu_premium(conn)
     conn.execute("UPDATE usuarios SET pin = '1234' WHERE rol = 'mozo' AND (pin IS NULL OR pin = '0000')")
     conn.execute("UPDATE usuarios SET pin = '2222' WHERE rol = 'cocina' AND (pin IS NULL OR pin = '0000')")
     conn.execute("UPDATE usuarios SET pin = '3333' WHERE rol = 'caja' AND (pin IS NULL OR pin = '0000')")
@@ -1328,6 +1489,7 @@ def confirmar_pedido_cocina(id_pedido: int) -> dict:
 
 def obtener_pedidos_por_estado() -> dict[str, list]:
     """Retorna los pedidos agrupados por estado_comanda."""
+    cutoff = active_order_cutoff()
     conn = get_connection()
     try:
         filas = conn.execute("""
@@ -1347,10 +1509,11 @@ def obtener_pedidos_por_estado() -> dict[str, list]:
             JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
             JOIN productos_menu pm ON pm.id_producto = pd.id_producto
             WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo')
+              AND pc.fecha_hora >= ?
               AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
             GROUP BY pc.id_pedido, pc.fecha_hora, pc.estado_comanda, m.numero_mesa, u.nombre, u.apellido
             ORDER BY pc.fecha_hora ASC
-        """).fetchall()
+        """, (cutoff,)).fetchall()
 
         agrupados: dict[str, list] = {"pendiente": [], "en_cocina": [], "listo": []}
         for f in filas:
@@ -1471,28 +1634,34 @@ def _get_unidad(id_insumo):
 
 # ── Seed de pedidos de prueba para la demo ────────────────────────────
 
-def seed_menu_premium() -> None:
+def seed_menu_premium(conn: sqlite3.Connection | None = None) -> None:
     """Inserta los 30 platos premium si la tabla productos_menu esta vacia."""
-    try:
-        conn = get_connection()
-    except Exception:
-        return
-    try:
-        conn.execute("SELECT COUNT(*) FROM productos_menu").fetchone()
-    except Exception:
-        conn.close()
-        init_db()
+    own_connection = conn is None
+    if conn is None:
         try:
             conn = get_connection()
         except Exception:
             return
     try:
+        conn.execute("SELECT COUNT(*) FROM productos_menu").fetchone()
+    except Exception:
+        if own_connection:
+            conn.close()
+        init_db()
+        try:
+            conn = get_connection()
+            own_connection = True
+        except Exception:
+            return
+    try:
         cur = conn.execute("SELECT COUNT(*) AS cnt FROM productos_menu")
         if cur.fetchone()["cnt"] > 0:
-            conn.close()
+            if own_connection:
+                conn.close()
             return
     except Exception:
-        conn.close()
+        if own_connection:
+            conn.close()
         return
     platos = [
         ("Provolone con mermelada de tomates y pesto, con escabeches y focaccia", 12000, "Entradas"),
@@ -1532,8 +1701,9 @@ def seed_menu_premium() -> None:
                          (nombre, precio, categoria))
         except Exception:
             pass
-    conn.commit()
-    conn.close()
+    if own_connection:
+        conn.commit()
+        conn.close()
 
 
 def seed_pedidos_demo() -> None:
