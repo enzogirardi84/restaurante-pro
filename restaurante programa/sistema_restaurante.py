@@ -650,6 +650,7 @@ def start_recovery_admin_session(access_user: str = "anahigilardi") -> None:
 def login() -> None:
     usuario_sistema = get_config("usuario_sistema", SYSTEM_USERNAME)
     accesos = active_system_accesses()
+    logo_html = login_logo_tag()
     st.markdown(
         """
         <style>
@@ -669,6 +670,7 @@ def login() -> None:
     st.markdown(
         f"""
         <div class="login-header">
+            {logo_html}
             <div class="login-badge">SISTEMA</div>
             <div class="login-title">Restaurante Pro</div>
             <div class="login-separator">\u2666</div>
@@ -753,6 +755,7 @@ def allowed_modules(user: dict) -> list[str]:
 
 def sidebar() -> None:
     user = st.session_state.usuario
+    logo_html = login_logo_tag()
     # Botón colapsar — dentro del sidebar, alineado a la derecha
     col_spacer, col_btn = st.sidebar.columns([4, 1])
     with col_btn:
@@ -761,12 +764,15 @@ def sidebar() -> None:
             st.rerun()
     st.sidebar.markdown(
         f"""
-        <div style="padding:0.4rem 0 0.9rem;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:0.7rem">
-            <div style="font-size:1.05rem;font-weight:850;color:white;letter-spacing:-0.02em">{APP_TITLE}</div>
-            <div style="margin-top:0.5rem;padding:0.55rem 0.6rem;border:1px solid rgba(255,255,255,0.1);border-radius:8px;background:rgba(255,255,255,0.03)">
-                <div style="font-weight:700;color:#f0ece4;font-size:0.92rem">{escape(user['nombre'])} {escape(user['apellido'])}</div>
-                <div style="font-size:0.78rem;color:#b8b0a4;text-transform:capitalize;margin-top:0.1rem">{escape(user['rol'])}</div>
+        <div class="sidebar-brand-shell">
+            <div class="sidebar-brand-main">
+                <div class="sidebar-title">{APP_TITLE}</div>
+                <div class="sidebar-user-card">
+                    <div class="sidebar-user-name">{escape(user['nombre'])} {escape(user['apellido'])}</div>
+                    <div class="sidebar-user-role">{escape(user['rol'])}</div>
+                </div>
             </div>
+            <div class="sidebar-logo">{logo_html}</div>
         </div>
         """,
         unsafe_allow_html=True,

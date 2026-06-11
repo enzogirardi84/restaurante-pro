@@ -258,7 +258,17 @@ def inject_styles() -> None:
             }
 
             /* Login "El Patr\u00f3n" (Hacienda Heritage - Vintage) */
-            .login-header { text-align: center; margin-bottom: 30px; }
+            .login-header { text-align: center; margin-bottom: 24px; }
+            .login-logo-img {
+                display: block;
+                width: 128px;
+                height: 128px;
+                object-fit: cover;
+                border-radius: 8px;
+                margin: 0 auto 14px;
+                border: 1px solid var(--color-borde);
+                box-shadow: 0 6px 18px rgba(66, 42, 32, 0.18);
+            }
             .login-badge {
                 background: #3e2723; color: white; display: inline-block;
                 padding: 4px 12px; font-size: 12px; font-weight: bold;
@@ -352,6 +362,50 @@ def inject_styles() -> None:
             .footer-links a { color: #888; text-decoration: none; margin: 0 4px; }
             .footer-links a:hover { color: var(--color-cuero); text-decoration: underline; }
             .active-users { margin-top: 10px; color: var(--color-cuero); }
+
+            .sidebar-brand-shell {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 0.75rem;
+                padding: 0.4rem 0 0.9rem;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+                margin-bottom: 0.7rem;
+            }
+            .sidebar-brand-main { min-width: 0; flex: 1 1 auto; }
+            .sidebar-title {
+                font-size: 1.02rem;
+                font-weight: 850;
+                color: white;
+                letter-spacing: 0;
+                line-height: 1.15;
+            }
+            .sidebar-user-card {
+                margin-top: 0.5rem;
+                padding: 0.55rem 0.6rem;
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 8px;
+                background: rgba(255,255,255,0.03);
+            }
+            .sidebar-user-name {
+                font-weight: 700;
+                color: #f0ece4;
+                font-size: 0.9rem;
+                overflow-wrap: anywhere;
+            }
+            .sidebar-user-role {
+                font-size: 0.76rem;
+                color: #b8b0a4;
+                text-transform: capitalize;
+                margin-top: 0.1rem;
+            }
+            .sidebar-logo .login-logo-img {
+                width: 58px;
+                height: 58px;
+                margin: 0;
+                flex: 0 0 auto;
+                box-shadow: 0 3px 10px rgba(0,0,0,0.22);
+            }
 
             /* Cards */
             .card {
