@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from html import escape
 from io import BytesIO
 from pathlib import Path
@@ -281,9 +282,23 @@ def keep_sidebar_open() -> None:
     )
 
 
-def money(value: float | int | None) -> str:
-    value = value or 0
-    return f"${value:,.0f}".replace(",", ".")
+def money(value: float | int | str | Decimal | None) -> str:
+    if value in (None, ""):
+        amount = Decimal("0")
+    else:
+        try:
+            if isinstance(value, str):
+                clean = value.strip().replace("$", "").replace(" ", "")
+                if "," in clean and "." in clean:
+                    clean = clean.replace(".", "").replace(",", ".")
+                else:
+                    clean = clean.replace(",", ".")
+                amount = Decimal(clean or "0")
+            else:
+                amount = Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError):
+            amount = Decimal("0")
+    return f"${amount:,.0f}".replace(",", ".")
 
 
 def precio_producto_html(producto: dict) -> str:
@@ -4235,7 +4250,7 @@ def page_panel() -> None:
     """))
     caja_texto = "Cerrada"
     if caja:
-        caja_texto = f"Abierta #{caja['id_caja']} | Ventas {money(caja['monto_ventas'])}"
+        caja_texto = f"Abierta #{caja['id_caja']} | Ventas {money(caja['monto_ventas'] or 0)}"
 
     col_a, col_b, col_c = st.columns([1.15, 1.15, 1])
     with col_a:

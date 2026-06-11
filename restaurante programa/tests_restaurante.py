@@ -1,5 +1,6 @@
 from pathlib import Path
 import ast
+from decimal import Decimal
 import os
 import tempfile
 
@@ -128,6 +129,16 @@ def test_cash_charge_requires_enough_cash_only_for_cash_payments():
     assert cash_difference_label(0) == "exacta"
     assert cash_close_requires_note(-1)
     assert not cash_close_requires_note(0)
+
+
+def test_money_formats_cloud_numeric_values():
+    from sistema_restaurante import money
+
+    assert money(None) == "$0"
+    assert money(Decimal("1234.56")) == "$1.235"
+    assert money("1234.56") == "$1.235"
+    assert money("1.234,56") == "$1.235"
+    assert money("no-numero") == "$0"
 
 
 def test_role_permissions_are_restricted_and_terminal_locked():
