@@ -648,20 +648,53 @@ def start_recovery_admin_session(access_user: str = "anahigilardi") -> None:
 
 
 def login() -> None:
-    usuario_sistema = get_config("usuario_sistema", SYSTEM_USERNAME)
-    accesos = active_system_accesses()
     logo_html = login_logo_tag()
     st.markdown(
         """
         <style>
+            .stApp {
+                background:
+                    radial-gradient(circle at 18% 12%, rgba(255,249,237,0.72), transparent 28rem),
+                    radial-gradient(circle at 82% 18%, rgba(93,58,46,0.12), transparent 24rem),
+                    linear-gradient(135deg, #efe1cf 0%, #fff9ed 48%, #eadcc9 100%) !important;
+            }
+            .stApp::before {
+                content: "";
+                position: fixed;
+                inset: 0;
+                pointer-events: none;
+                z-index: 0;
+                background-image:
+                    repeating-linear-gradient(0deg, rgba(93,58,46,0.045) 0 1px, transparent 1px 5px),
+                    repeating-linear-gradient(90deg, rgba(93,58,46,0.025) 0 1px, transparent 1px 7px);
+                opacity: 0.42;
+            }
             [data-testid="stAppViewContainer"] > .main {
-                background: var(--color-pergamino) !important;
+                background: transparent !important;
                 font-family: 'Libre Caslon Text', serif !important;
             }
-            [data-testid="stAppViewContainer"] > .main > .block-container {
-                max-width: 420px !important;
-                margin: 60px auto 0 !important;
-                padding-top: 0 !important;
+            [data-testid="stAppViewContainer"] .main .block-container,
+            .stMain .block-container,
+            section.main .block-container,
+            div.block-container {
+                max-width: min(560px, calc(100vw - 2rem)) !important;
+                margin: clamp(0.75rem, 3vh, 2rem) auto !important;
+                padding: 1.15rem 1.35rem 1rem !important;
+                background: rgba(255,249,237,0.94);
+                border: 1px solid rgba(180,138,99,0.58);
+                border-radius: 12px;
+                box-shadow: 0 18px 45px rgba(44,34,30,0.14), inset 0 1px 0 rgba(255,255,255,0.65);
+                position: relative;
+                z-index: 1;
+            }
+            @media (max-width: 760px) {
+                [data-testid="stAppViewContainer"] .main .block-container,
+                .stMain .block-container,
+                section.main .block-container,
+                div.block-container {
+                    margin: 0.75rem auto !important;
+                    padding: 1rem 0.9rem !important;
+                }
             }
         </style>
         """,
@@ -709,18 +742,17 @@ def login() -> None:
         else:
             st.error("Usuario o contraseña incorrectos.")
     if system_password_is_default():
-        st.warning("Hay un acceso anterior activo. Al ingresar, el sistema pedirá actualizarlo.")
-    mostrar = ", ".join(str(a["usuario"]) for a in accesos) or usuario_sistema if accesos else "\u2014"
+        st.warning("Hay un acceso anterior activo. Al ingresar, el sistema pedira actualizarlo.")
     st.markdown(
-        f"""
+        """
         <div class="login-footer">
+            <div class="footer-title">Accesos rapidos</div>
             <div class="footer-links">
-                <a href="?terminal=mozo">Mozo</a> |
-                <a href="?terminal=cocina">Cocina</a> |
+                <a href="?terminal=mozo">Mozo</a>
+                <span>|</span>
+                <a href="?terminal=cocina">Cocina</a>
+                <span>|</span>
                 <a href="?terminal=caja">Caja</a>
-            </div>
-            <div class="active-users">
-                \u25cf Usuarios activos: <strong>{mostrar}</strong>
             </div>
         </div>
         """,

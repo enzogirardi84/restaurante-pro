@@ -258,14 +258,14 @@ def inject_styles() -> None:
             }
 
             /* Login "El Patr\u00f3n" (Hacienda Heritage - Vintage) */
-            .login-header { text-align: center; margin-bottom: 24px; }
+            .login-header { text-align: center; margin-bottom: 18px; }
             .login-logo-img {
                 display: block;
-                width: 128px;
-                height: 128px;
+                width: 112px;
+                height: 112px;
                 object-fit: cover;
-                border-radius: 8px;
-                margin: 0 auto 14px;
+                border-radius: 10px;
+                margin: 0 auto 12px;
                 border: 1px solid var(--color-borde);
                 box-shadow: 0 6px 18px rgba(66, 42, 32, 0.18);
             }
@@ -274,11 +274,11 @@ def inject_styles() -> None:
                 padding: 4px 12px; font-size: 12px; font-weight: bold;
                 letter-spacing: 2px; margin-bottom: 10px;
             }
-            .login-title { font-size: 32px; color: var(--color-cuero); font-weight: 700; }
-            .login-separator { color: var(--color-cuero); font-size: 14px; margin: 10px 0; }
+            .login-title { font-size: 30px; color: var(--color-cuero); font-weight: 700; line-height: 1.08; }
+            .login-separator { color: var(--color-cuero); font-size: 13px; margin: 8px 0 0; }
             .login-label {
-                display: block; font-size: 12px; font-weight: bold;
-                color: #444; margin-bottom: 8px; letter-spacing: 1px;
+                display: block; font-size: 11px; font-weight: bold;
+                color: #3f332b; margin: 0.75rem 0 0.35rem; letter-spacing: 1.4px;
             }
             .login-input-wrapper { position: relative; margin-bottom: 20px; }
             .login-input {
@@ -308,7 +308,7 @@ def inject_styles() -> None:
             [data-testid="stAppViewContainer"] .stTextInput input {
                 width: 100% !important; padding: 12px 2.5rem 12px 2.5rem !important;
                 background: #f8f1e5 !important; border: 1px solid var(--color-borde) !important;
-                border-radius: 4px !important; font-size: 16px !important;
+                border-radius: 8px !important; font-size: 16px !important;
                 color: var(--color-cuero) !important;
                 font-family: 'Libre Caslon Text', serif !important;
                 min-height: unset !important; line-height: 1.4 !important;
@@ -337,8 +337,8 @@ def inject_styles() -> None:
             [data-testid="stAppViewContainer"] .stButton button[kind="primary"] {
                 width: 100% !important; background: var(--color-cuero) !important;
                 color: white !important; padding: 14px !important; border: none !important;
-                border-radius: 4px !important; font-weight: bold !important;
-                font-size: 18px !important; cursor: pointer !important;
+                border-radius: 8px !important; font-weight: bold !important;
+                font-size: 17px !important; cursor: pointer !important;
                 margin-bottom: 12px !important; transition: background 0.3s !important;
                 font-family: 'Libre Caslon Text', serif !important;
                 min-height: unset !important; line-height: 1.4 !important;
@@ -350,7 +350,7 @@ def inject_styles() -> None:
                 width: 100% !important; background: transparent !important;
                 color: var(--color-cuero) !important; padding: 12px !important;
                 border: 1px solid var(--color-borde) !important;
-                border-radius: 4px !important; font-weight: bold !important;
+                border-radius: 8px !important; font-weight: bold !important;
                 font-size: 14px !important; cursor: pointer !important;
                 font-family: 'Libre Caslon Text', serif !important;
                 min-height: unset !important; line-height: 1.4 !important;
@@ -358,10 +358,12 @@ def inject_styles() -> None:
             [data-testid="stAppViewContainer"] .stButton button:not([kind="primary"]):hover {
                 border-color: var(--color-cuero) !important;
             }
-            .login-footer { text-align: center; margin-top: 40px; font-size: 12px; color: #888; border-top: 1px solid var(--color-borde); padding-top: 20px; }
-            .footer-links a { color: #888; text-decoration: none; margin: 0 4px; }
+            .login-footer { text-align: center; margin-top: 18px; font-size: 12px; color: #7b6a5f; border-top: 1px solid rgba(180,138,99,0.45); padding-top: 14px; }
+            .footer-title { color: var(--color-cuero); font-size: 0.72rem; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 0.35rem; }
+            .footer-links { display: inline-flex; align-items: center; justify-content: center; gap: 0.55rem; }
+            .footer-links a { color: #6f5b50; text-decoration: none; margin: 0; font-weight: 700; }
             .footer-links a:hover { color: var(--color-cuero); text-decoration: underline; }
-            .active-users { margin-top: 10px; color: var(--color-cuero); }
+            .active-users { display: none !important; }
 
             .sidebar-brand-shell {
                 padding: 0.25rem 0 0.9rem;
