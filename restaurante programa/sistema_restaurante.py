@@ -671,14 +671,8 @@ def login() -> None:
         unsafe_allow_html=True,
     )
     st.markdown(
-        f"""
-        <div class="login-header">
-            {logo_html}
-            <div class="login-badge">SISTEMA</div>
-            <div class="login-title">Restaurante Pro</div>
-            <div class="login-separator">\u2666</div>
-        </div>
-        """,
+        f'<div class="login-header">{logo_html}<div class="login-badge">SISTEMA</div>'
+        '<div class="login-title">Restaurante Pro</div><div class="login-separator">\u2666</div></div>',
         unsafe_allow_html=True,
     )
     st.markdown("""<label class="login-label">USUARIO</label>""", unsafe_allow_html=True)
