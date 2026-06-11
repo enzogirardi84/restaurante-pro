@@ -3,6 +3,7 @@ sistema.py — Diagnostico, configuracion, monitoreo y datos del sistema.
 """
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime
 from html import escape
@@ -15,7 +16,7 @@ from database import (
     DB_PATH, database_label, logs_operaciones_recientes,
     procesar_cola_sincronizacion, using_postgres, get_connection,
 )
-from cloud_config import cloud_status, masked_status_table
+from cloud_config import cloud_status, get_secret, masked_status_table
 from components.css import stat_card, title
 from components.helpers import (
     APP_TITLE, caja_abierta, generar_ticket, promo_config,
@@ -266,32 +267,97 @@ def _tab_auditoria():
 # ── Pestana 5: Agente IA ─────────────────────────────────────────────────
 
 def _tab_agente_ia():
-    st.subheader("Agente de calidad")
-    reporte_path = Path(__file__).parent.parent.parent / "data" / "reporte_agente_qa.log"
-    if reporte_path.exists():
-        contenido = reporte_path.read_text(encoding="utf-8")
-        ultimo = [l for l in contenido.split("\n") if "Resumen:" in l]
-        if ultimo:
-            st.success(f"Ultimo: {ultimo[-1]}")
-        st.text_area("Log", contenido, height=200, disabled=True)
-    else:
-        st.info("Ejecuta `python agente_qa.py` para generar el primer reporte.")
+    from components.agente_interno import estado_general, alertas_activas, sugerencias, consultar_llm
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("Ejecutar ahora", type="primary", use_container_width=True):
-            import subprocess, sys
-            with st.spinner("Escaneando..."):
-                r = subprocess.run([sys.executable, "agente_qa.py", "--once"],
-                                   capture_output=True, text=True, timeout=120,
-                                   cwd=Path(__file__).parent.parent.parent)
-            st.toast("OK" if r.returncode == 0 else r.stderr[:200])
-            st.rerun()
-    with c2:
-        stats = _estadisticas_agente()
-        st.metric("Escaneados", stats.get("archivos_escaneados", 0))
-    with c3:
-        st.metric("Corregidos", stats.get("corregidos", 0))
+    st.subheader("Asistente inteligente")
+
+    solapa_info, solapa_alertas, solapa_qa, solapa_qa_externo, solapa_scan = st.tabs(
+        ["Estado", "Alertas", "Consultas", "Chat IA", "QA Scan"]
+    )
+
+    with solapa_info:
+        e = estado_general()
+        cols = st.columns(5)
+        cols[0].metric("Caja", "Abierta" if e.get("caja_abierta") else "Cerrada")
+        cols[1].metric("Ventas hoy", f"${e.get('ventas_hoy', 0):.0f}")
+        cols[2].metric("Pedidos hoy", e.get("pedidos_hoy", 0))
+        cols[3].metric("Mesas ocupadas", f"{e.get('mesas_ocupadas', 0)}/{e.get('mesas_totales', 0)}")
+        cols[4].metric("Stock bajo", e.get("stock_bajo", 0))
+        cols2 = st.columns(3)
+        cols2[0].metric("Usuarios", e.get("usuario_count", 0))
+        cols2[1].metric("Productos", e.get("productos_count", 0))
+        cols2[2].metric("Reservas hoy", e.get("reservas_hoy", 0))
+        sugs = sugerencias()
+        if sugs:
+            st.subheader("Sugerencias")
+            for s in sugs:
+                st.info(s)
+        else:
+            st.success("Todo en orden!")
+
+    with solapa_alertas:
+        al = alertas_activas()
+        if al:
+            for a in al:
+                icono = {"alta": " ALTA", "media": " MEDIA", "baja": " BAJA"}.get(a.get("severidad", ""), "")
+                sev = {"alta": "error", "media": "warning", "baja": "info"}.get(a.get("severidad", ""), "info")
+                getattr(st, sev)(f"{icono} {a['mensaje']}")
+        else:
+            st.success("No hay alertas activas.")
+
+    with solapa_qa:
+        preguntas = [
+            ("Ventas del dia", "ventas_dia"),
+            ("Productos mas vendidos", "top_productos"),
+            ("Stock critico", "stock_critico"),
+            ("Reservas pendientes", "reservas_pendientes"),
+            ("Movimiento de caja", "mov_caja"),
+        ]
+        for label, key in preguntas:
+            if st.button(label, key=f"btn_q_{key}", use_container_width=True):
+                respuesta = _responder_consulta_interna(key)
+                if respuesta:
+                    for r in respuesta:
+                        st.write(r)
+
+    with solapa_qa_externo:
+        api_key = get_secret("OPENROUTER_API_KEY")
+        if api_key:
+            query = st.text_input("Pregunta sobre el sistema (ej: 'Que productos se venden mas?', 'Hay stock bajo?')")
+            if query:
+                e = estado_general()
+                ctx = json.dumps(e, ensure_ascii=False)
+                with st.spinner("Pensando..."):
+                    rta = consultar_llm(query, api_key=api_key, contexto=ctx)
+                st.markdown(rta)
+        else:
+            st.info("Chat IA requiere OPENROUTER_API_KEY en secrets. Mientras tanto usa las Consultas locales.")
+
+    with solapa_scan:
+        reporte_path = Path(__file__).parent.parent.parent / "data" / "reporte_agente_qa.log"
+        if reporte_path.exists():
+            contenido = reporte_path.read_text(encoding="utf-8")
+            ultimo = [l for l in contenido.split("\n") if "Resumen:" in l]
+            if ultimo:
+                st.success(f"Ultimo: {ultimo[-1]}")
+            st.text_area("Log del QA Scan", contenido, height=200, disabled=True)
+        else:
+            st.info("Ejecuta `python agente_qa.py` para generar el primer reporte.")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if st.button("Ejecutar scan ahora", type="secondary", use_container_width=True):
+                import subprocess, sys
+                with st.spinner("Escaneando..."):
+                    r = subprocess.run([sys.executable, "agente_qa.py", "--once"],
+                                       capture_output=True, text=True, timeout=120,
+                                       cwd=Path(__file__).parent.parent.parent)
+                st.toast("OK" if r.returncode == 0 else r.stderr[:200])
+                st.rerun()
+        with c2:
+            stats = _estadisticas_agente()
+            st.metric("Escaneados", stats.get("archivos_escaneados", 0))
+        with c3:
+            st.metric("Corregidos", stats.get("corregidos", 0))
 
 
 def _estadisticas_agente() -> dict:
@@ -312,6 +378,64 @@ def _estadisticas_agente() -> dict:
                     try: s["corregidos"] = int(p.split(":")[-1].strip().split()[0])
                     except ValueError: pass
     return s
+
+
+def _responder_consulta_interna(key: str) -> list[str]:
+    from components.helpers import rows
+    lineas = []
+    try:
+        if key == "ventas_dia":
+            data = rows("SELECT COALESCE(SUM(total),0) t FROM pagos_mesa WHERE date(fecha_hora)=date('now','localtime')") or []
+            lineas.append(f"Ventas de hoy: ${data[0]['t']:.2f}" if data else "Sin ventas hoy.")
+        elif key == "top_productos":
+            data = rows("""
+                SELECT pm.nombre, SUM(pd.cantidad) q
+                FROM pedido_detalle pd JOIN productos_menu pm ON pm.id_producto=pd.id_producto
+                WHERE date(pd.id_pedido||'') = date('now','localtime')
+                GROUP BY pm.id_producto ORDER BY q DESC LIMIT 5
+            """) or []
+            if data:
+                lineas.append("Productos mas vendidos hoy:")
+                for r in data:
+                    lineas.append(f"  - {r['nombre']}: {r['q']}")
+            else:
+                lineas.append("Sin datos de ventas hoy.")
+        elif key == "stock_critico":
+            data = rows("SELECT nombre, stock_actual, stock_minimo FROM insumos WHERE stock_actual <= stock_minimo ORDER BY stock_actual ASC LIMIT 10") or []
+            if data:
+                lineas.append("Insumos con stock critico:")
+                for r in data:
+                    lineas.append(f"  - {r['nombre']}: {r['stock_actual']}/{r['stock_minimo']}")
+            else:
+                lineas.append("No hay insumos con stock bajo.")
+        elif key == "reservas_pendientes":
+            data = rows("""
+                SELECT r.*, m.numero_mesa FROM reservas r
+                JOIN mesas m ON m.id_mesa=r.id_mesa
+                WHERE date(r.fecha_reserva)=date('now','localtime') AND r.estado='confirmada'
+                ORDER BY r.hora_reserva
+            """) or []
+            if data:
+                lineas.append("Reservas de hoy:")
+                for r in data:
+                    lineas.append(f"  - {r['hora_reserva']} | Mesa {r['numero_mesa']} | {r['nombre_cliente']} ({r['cantidad_personas']} pers)")
+            else:
+                lineas.append("No hay reservas para hoy.")
+        elif key == "mov_caja":
+            c = caja_abierta()
+            if c:
+                data = rows("SELECT tipo_movimiento, SUM(monto) m FROM movimientos_caja WHERE id_caja=? GROUP BY tipo_movimiento", (c["id_caja"],)) or []
+                if data:
+                    lineas.append("Movimientos de caja:")
+                    for r in data:
+                        lineas.append(f"  - {r['tipo_movimiento']}: ${r['m']:.2f}")
+                else:
+                    lineas.append("Sin movimientos en esta caja.")
+            else:
+                lineas.append("No hay caja abierta.")
+    except Exception as exc:
+        lineas.append(f"Error: {exc}")
+    return lineas
 
 
 # ── Subir a Supabase ──────────────────────────────────────────────────────
