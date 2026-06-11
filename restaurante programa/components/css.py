@@ -1,4 +1,4 @@
-﻿"""Design system moderno para Restaurante Pro."""
+"""Design system moderno para Restaurante Pro."""
 
 from __future__ import annotations
 
