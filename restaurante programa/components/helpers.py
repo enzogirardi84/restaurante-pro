@@ -20,7 +20,7 @@ from database import (
     marcar_pedido_entregado, obtener_pedidos_por_estado, registrar_auditoria, using_postgres,
 )
 from cloud_config import app_name, cloud_status, database_url_warnings, default_service_percentage, masked_status_table
-from security import hash_password, is_password_hash, login_logo_tag, verify_password
+from security import hash_password, is_password_hash, login_logo_path, login_logo_tag, verify_password
 from access_utils import recovery_system_access, validate_default_system_access
 from permission_utils import modules_for_role
 
@@ -313,6 +313,7 @@ def start_recovery_admin_session(access_user: str = "anahigilardi") -> None:
 def login() -> None:
     usuario_sistema = get_config("usuario_sistema", SYSTEM_USERNAME)
     accesos = active_system_accesses()
+    logo_path = login_logo_path()
     logo_html = login_logo_tag()
     st.markdown(
         """
@@ -330,6 +331,11 @@ def login() -> None:
         """,
         unsafe_allow_html=True,
     )
+    if logo_path.exists():
+        logo_cols = st.columns([1, 1, 1])
+        with logo_cols[1]:
+            st.image(str(logo_path), width=128)
+        logo_html = ""
     st.markdown(
         f'<div class="login-header">{logo_html}<div class="login-badge">SISTEMA</div>'
         '<div class="login-title">Restaurante Pro</div><div class="login-separator">\u2666</div></div>',
@@ -420,6 +426,9 @@ def allowed_modules(user: dict) -> list[str]:
 
 def sidebar() -> None:
     user = st.session_state.usuario
+    logo_path = login_logo_path()
+    if logo_path.exists():
+        st.sidebar.image(str(logo_path), width=86)
     st.sidebar.markdown(
         f"""
         <div style="padding:0.35rem 0 0.8rem;border-bottom:1px solid rgba(255,255,255,0.12);margin-bottom:0.9rem">

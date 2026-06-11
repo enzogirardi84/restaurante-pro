@@ -52,7 +52,7 @@ from components.css import inject_styles, offline_banner, terminal_mode_styles, 
 from kitchen_utils import kitchen_auto_refresh_seconds
 from order_utils import normalize_order_cart
 from permission_utils import modules_for_role
-from security import hash_password, is_password_hash, login_logo_tag, verify_password
+from security import hash_password, is_password_hash, login_logo_path, login_logo_tag, verify_password
 
 # Nuevos módulos
 from components.proveedores_utils import page_gestion_proveedores
@@ -653,6 +653,7 @@ def start_recovery_admin_session(access_user: str = "anahigilardi") -> None:
 def login() -> None:
     usuario_sistema = get_config("usuario_sistema", SYSTEM_USERNAME)
     accesos = active_system_accesses()
+    logo_path = login_logo_path()
     logo_html = login_logo_tag()
     st.markdown(
         """
@@ -670,6 +671,11 @@ def login() -> None:
         """,
         unsafe_allow_html=True,
     )
+    if logo_path.exists():
+        logo_cols = st.columns([1, 1, 1])
+        with logo_cols[1]:
+            st.image(str(logo_path), width=128)
+        logo_html = ""
     st.markdown(
         f'<div class="login-header">{logo_html}<div class="login-badge">SISTEMA</div>'
         '<div class="login-title">Restaurante Pro</div><div class="login-separator">\u2666</div></div>',
@@ -752,11 +758,15 @@ def allowed_modules(user: dict) -> list[str]:
 
 def sidebar() -> None:
     user = st.session_state.usuario
+    logo_path = login_logo_path()
     logo_html = login_logo_tag()
-    st.sidebar.markdown(
-        f'<div class="sidebar-logo-top">{logo_html}</div>',
-        unsafe_allow_html=True,
-    )
+    if logo_path.exists():
+        st.sidebar.image(str(logo_path), width=86)
+    elif logo_html:
+        st.sidebar.markdown(
+            f'<div class="sidebar-logo-top">{logo_html}</div>',
+            unsafe_allow_html=True,
+        )
     # Botón colapsar — dentro del sidebar, alineado a la derecha
     col_spacer, col_btn = st.sidebar.columns([4, 1])
     with col_btn:

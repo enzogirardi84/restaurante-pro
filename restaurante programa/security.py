@@ -9,6 +9,7 @@ from pathlib import Path
 
 HASH_PREFIX = "pbkdf2_sha256"
 HASH_ITERATIONS = 260_000
+LOGIN_LOGO_PATH = Path(__file__).parent / "assets" / "image.png"
 
 
 def hash_password(password: str) -> str:
@@ -46,4 +47,14 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def login_logo_tag() -> str:
-    return ""
+    import base64
+
+    path = login_logo_path()
+    if not path.exists():
+        return ""
+    b64 = base64.b64encode(path.read_bytes()).decode()
+    return f'<img src="data:image/png;base64,{b64}" alt="Logo El Patron" class="login-logo-img">'
+
+
+def login_logo_path() -> Path:
+    return LOGIN_LOGO_PATH
