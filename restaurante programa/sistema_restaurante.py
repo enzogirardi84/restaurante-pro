@@ -1790,6 +1790,35 @@ def cash_focus_script() -> None:
     )
 
 
+def _avanzar_estado_supabase(id_pedido: int, estado_actual: str) -> dict:
+    """Avanza estado directo en Supabase cuando está disponible, con fallback a SQLite."""
+    transiciones = {"pendiente": "en_cocina", "en_cocina": "listo"}
+    nuevo_estado = transiciones.get(estado_actual)
+    if not nuevo_estado:
+        return {"ok": False, "error": f"Estado '{estado_actual}' sin transición definida."}
+    sb = _get_supabase()
+    if not sb:
+        return avanzar_estado(id_pedido, estado_actual)
+    try:
+        res = sb.table("pedidos_cabecera")\
+            .select("estado_comanda")\
+            .eq("id_pedido", id_pedido)\
+            .single()\
+            .execute()
+        if not res.data:
+            return {"ok": False, "error": f"Pedido {id_pedido} no existe."}
+        estado_db = res.data["estado_comanda"]
+        if estado_db != estado_actual:
+            return {"ok": False, "error": f"Estado en DB es '{estado_db}', se esperaba '{estado_actual}'."}
+        sb.table("pedidos_cabecera")\
+            .update({"estado_comanda": nuevo_estado})\
+            .eq("id_pedido", id_pedido)\
+            .execute()
+        return {"ok": True, "advertencias": []}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def page_cocina() -> None:
     procesar_cola_sincronizacion()
     cierre_vencidos = cerrar_pedidos_vencidos()
@@ -2068,7 +2097,7 @@ def page_cocina() -> None:
             with _pc1:
                 if st.button(f"▶ Iniciar  #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
                              key=f"kb_ini_{pedido['id_pedido']}", type="primary", use_container_width=True):
-                    res = avanzar_estado(pedido["id_pedido"], "pendiente")
+                    res = _avanzar_estado_supabase(pedido["id_pedido"], "pendiente")
                     if res["ok"]:
                         st.session_state.ultimo_despachado = {"id_pedido": pedido["id_pedido"],
                             "estado_anterior": "pendiente", "mesa": pedido["numero_mesa"]}
@@ -2079,9 +2108,9 @@ def page_cocina() -> None:
             with _pc2:
                 if st.button(f"✅ Listo #{pedido['id_pedido']}", key=f"kb_skip_{pedido['id_pedido']}",
                              use_container_width=True):
-                    res1 = avanzar_estado(pedido["id_pedido"], "pendiente")
+                    res1 = _avanzar_estado_supabase(pedido["id_pedido"], "pendiente")
                     if res1["ok"]:
-                        res2 = avanzar_estado(pedido["id_pedido"], "en_cocina")
+                        res2 = _avanzar_estado_supabase(pedido["id_pedido"], "en_cocina")
                         if res2["ok"]:
                             st.session_state.ultimo_despachado = {"id_pedido": pedido["id_pedido"],
                                 "estado_anterior": "pendiente", "mesa": pedido["numero_mesa"]}
@@ -2105,7 +2134,7 @@ def page_cocina() -> None:
         for pedido in en_cocina:
             if st.button(f"🚀 Listo  #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
                          key=f"kb_list_{pedido['id_pedido']}", type="primary", use_container_width=True):
-                res = avanzar_estado(pedido["id_pedido"], "en_cocina")
+                res = _avanzar_estado_supabase(pedido["id_pedido"], "en_cocina")
                 if res["ok"]:
                     st.session_state.ultimo_despachado = {"id_pedido": pedido["id_pedido"],
                         "estado_anterior": "en_cocina", "mesa": pedido["numero_mesa"]}
