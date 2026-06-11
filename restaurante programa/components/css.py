@@ -1365,18 +1365,8 @@ def stat_card(label: str, value: str | int | float, accent: str = "#2563a0") -> 
 
 
 def offline_banner() -> None:
-    """Muestra un banner elegante si la app opera en modo SQLite local (sin Supabase)."""
-    try:
-        from database import using_postgres
-        if using_postgres():
-            return
-    except Exception:
-        pass
-    st.markdown(
-        '<div class="offline-banner">Modo local seguro &mdash; '
-        'los datos se guardan en SQLite. Conecta DATABASE_URL para activar Supabase.</div>',
-        unsafe_allow_html=True,
-    )
+    """Mantiene compatibilidad con vistas existentes sin mostrar aviso local."""
+    return
 
 
 def auto_refresh(seconds: int) -> None:
