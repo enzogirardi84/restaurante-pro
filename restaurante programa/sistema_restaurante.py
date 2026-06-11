@@ -1111,7 +1111,10 @@ def crear_pedido(id_mesa: int, id_usuario: int, cart: dict[int, dict]) -> int:
         _sync_pedido_a_supabase(id_pedido, id_mesa, id_usuario, items)
         return int(id_pedido)
     except Exception:
-        conn.execute("ROLLBACK")
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
         raise
     finally:
         conn.close()

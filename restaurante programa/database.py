@@ -394,7 +394,10 @@ class PgConnectionAdapter:
             self._conn.commit()
             return PgCursorAdapter(self._conn.cursor())
         if command == "ROLLBACK":
-            self._conn.rollback()
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
             return PgCursorAdapter(self._conn.cursor())
         if command.startswith("PRAGMA"):
             return PgCursorAdapter(self._conn.cursor())
@@ -1399,7 +1402,7 @@ def _recuperar_pedido_supabase(id_pedido: int, conn: sqlite3.Connection) -> bool
 def confirmar_pedido_cocina(id_pedido: int) -> dict:
     conn = get_connection_direct()
     try:
-        conn.execute("BEGIN TRANSACTION" if config.DB_ENGINE == "sqlite" else "BEGIN")
+        conn.execute("BEGIN" if using_postgres() else "BEGIN TRANSACTION")
         p = ph()
         cur = conn.execute(
             f"SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = {p}",
@@ -1428,9 +1431,29 @@ def confirmar_pedido_cocina(id_pedido: int) -> dict:
             )
             for receta in cur2.fetchall():
                 qty = receta["cantidad_a_descontar"] * item["cantidad"]
+                stock = conn.execute(
+                    f"SELECT stock_actual FROM insumos WHERE id_insumo = {p}",
+                    (receta["id_insumo"],)
+                ).fetchone()
+                stock_anterior = float(stock["stock_actual"] if stock else 0)
+                stock_nuevo = stock_anterior - float(qty)
                 conn.execute(
                     f"UPDATE insumos SET stock_actual = stock_actual - {p} WHERE id_insumo = {p}",
                     (qty, receta["id_insumo"])
+                )
+                conn.execute(
+                    f"""
+                    INSERT INTO movimientos_stock
+                        (id_insumo, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, descripcion)
+                    VALUES ({p}, 'descuento_receta', {p}, {p}, {p}, {p})
+                    """,
+                    (
+                        receta["id_insumo"],
+                        qty,
+                        stock_anterior,
+                        stock_nuevo,
+                        f"Pedido {id_pedido} - {item['nombre']}",
+                    )
                 )
         conn.execute(
             f"UPDATE pedidos_cabecera SET estado_comanda = 'listo' WHERE id_pedido = {p}",
@@ -1528,12 +1551,59 @@ def obtener_pedidos_por_estado() -> dict[str, list[dict]]:
 
 
 def seed_pedidos_demo() -> None:
-    pass
+    """Crea pedidos demo solo cuando no hay comandas activas."""
+    conn = get_connection_direct()
+    try:
+        activos = conn.execute("""
+            SELECT COUNT(*) AS cnt
+            FROM pedidos_cabecera
+            WHERE estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
+        """).fetchone()
+        if activos and int(activos["cnt"] if hasattr(activos, "__getitem__") else activos[0]) > 0:
+            return
+
+        usuario = conn.execute("""
+            SELECT id_usuario
+            FROM usuarios
+            WHERE rol = 'mozo'
+            ORDER BY id_usuario
+            LIMIT 1
+        """).fetchone() or conn.execute("SELECT id_usuario FROM usuarios ORDER BY id_usuario LIMIT 1").fetchone()
+        productos = conn.execute("""
+            SELECT id_producto
+            FROM productos_menu
+            WHERE activo = 1
+            ORDER BY id_producto
+            LIMIT 3
+        """).fetchall()
+        mesas = conn.execute("SELECT id_mesa FROM mesas ORDER BY id_mesa LIMIT 3").fetchall()
+        if not usuario or not productos or not mesas:
+            return
+
+        user_id = usuario["id_usuario"] if hasattr(usuario, "__getitem__") else usuario[0]
+        product_ids = [p["id_producto"] if hasattr(p, "__getitem__") else p[0] for p in productos]
+        mesa_ids = [m["id_mesa"] if hasattr(m, "__getitem__") else m[0] for m in mesas]
+        estados = ["pendiente", "pendiente", "en_cocina"]
+        for idx, estado in enumerate(estados):
+            mesa_id = mesa_ids[idx % len(mesa_ids)]
+            cur = conn.execute("""
+                INSERT INTO pedidos_cabecera (id_mesa, id_usuario, estado_comanda, fecha_hora)
+                VALUES (?, ?, ?, datetime('now','localtime'))
+            """, (mesa_id, user_id, estado))
+            pedido_id = cur.lastrowid
+            conn.execute("""
+                INSERT INTO pedido_detalle (id_pedido, id_producto, cantidad, observaciones)
+                VALUES (?, ?, ?, '')
+            """, (pedido_id, product_ids[idx % len(product_ids)], 1))
+            conn.execute("UPDATE mesas SET estado = 'ocupada' WHERE id_mesa = ?", (mesa_id,))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def database_label() -> str:
     """Retorna etiqueta descriptiva del motor de base de datos activo."""
-    if config.DB_ENGINE == "postgresql":
+    if using_postgres():
         return "Supabase / PostgreSQL"
     return "SQLite local"
 
@@ -1558,15 +1628,22 @@ def logs_operaciones_recientes(limit: int = 50) -> list[dict]:
         return []
 
 
-def active_order_cutoff() -> str:
-    """Retorna timestamp de corte para pedidos activos (últimas 12 horas)."""
+def active_order_cutoff(hours: int = STALE_ACTIVE_ORDER_HOURS) -> str:
+    """Retorna timestamp de corte para pedidos activos."""
     from datetime import datetime, timedelta
-    return (datetime.now() - timedelta(hours=12)).strftime("%Y-%m-%d %H:%M:%S")
+    return (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def using_postgres() -> bool:
     """Retorna True si el motor es PostgreSQL."""
-    return config.DB_ENGINE == "postgresql"
+    if _PG_FALLBACK:
+        return False
+    return bool(normalized_database_url())
+
+
+def ph() -> str:
+    """Placeholder SQL segun motor."""
+    return "%s" if using_postgres() else "?"
 
 
 def registrar_auditoria(modulo: str, accion: str, detalle: str = "") -> None:
@@ -1586,32 +1663,64 @@ def registrar_auditoria(modulo: str, accion: str, detalle: str = "") -> None:
         pass
 
 
-def cerrar_pedidos_vencidos() -> dict:
-    """Cierra pedidos con más de 12 horas sin actividad."""
+def cerrar_pedidos_vencidos(hours: int = STALE_ACTIVE_ORDER_HOURS) -> dict:
+    """Cierra pedidos activos demasiado antiguos y libera sus mesas."""
     try:
-        cutoff = active_order_cutoff()
+        cutoff = active_order_cutoff(hours)
+        now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         conn = get_connection_direct()
         try:
             p = ph()
             cur = conn.execute(
-                f"SELECT id_pedido, id_mesa FROM pedidos_cabecera"
-                f" WHERE estado_comanda IN ('pendiente','en_cocina','listo')"
+                f"SELECT id_pedido, id_mesa FROM pedidos_cabecera "
+                f"WHERE estado_comanda IN ('pendiente','en_cocina','listo','entregado') "
                 f" AND fecha_hora < {p}",
                 (cutoff,)
             )
             vencidos = cur.fetchall()
             mesas_liberadas = set()
             for v in vencidos:
+                pedido_id = v["id_pedido"]
                 conn.execute(
-                    f"UPDATE pedidos_cabecera SET estado_comanda = 'cobrado' WHERE id_pedido = {p}",
-                    (v["id_pedido"],)
+                    f"""
+                    UPDATE pedido_detalle
+                       SET cantidad_anulada = CASE
+                               WHEN COALESCE(cantidad_anulada, 0) < cantidad THEN cantidad
+                               ELSE cantidad_anulada
+                           END,
+                           motivo_anulacion = CASE
+                               WHEN COALESCE(motivo_anulacion, '') = '' THEN {p}
+                               ELSE motivo_anulacion
+                           END
+                     WHERE id_pedido = {p}
+                    """,
+                    (f"Cierre automatico por antiguedad mayor a {hours} horas", pedido_id)
+                )
+                conn.execute(
+                    f"""
+                    UPDATE pedidos_cabecera
+                       SET estado_comanda = 'cobrado',
+                           medio_pago = 'cierre_automatico',
+                           total_cobrado = 0,
+                           fecha_cobro = {p}
+                     WHERE id_pedido = {p}
+                    """,
+                    (now_text, pedido_id)
                 )
                 mesas_liberadas.add(v["id_mesa"])
             for id_mesa in mesas_liberadas:
-                conn.execute(
-                    f"UPDATE mesas SET estado = 'libre' WHERE id_mesa = {p}",
-                    (id_mesa,)
-                )
+                activo = conn.execute(
+                    f"""
+                    SELECT 1
+                    FROM pedidos_cabecera
+                    WHERE id_mesa = {p}
+                      AND estado_comanda IN ('pendiente','en_cocina','listo','entregado')
+                    LIMIT 1
+                    """,
+                    (id_mesa,),
+                ).fetchone()
+                if not activo:
+                    conn.execute(f"UPDATE mesas SET estado = 'libre' WHERE id_mesa = {p}", (id_mesa,))
             conn.commit()
             return {"ok": True, "cerrados": len(vencidos), "mesas_liberadas": len(mesas_liberadas)}
         finally:
@@ -1689,18 +1798,64 @@ def encolar_sync(tabla: str, operacion: str, id_registro: str, datos: dict) -> N
         pass
 
 
-def seed_menu_premium() -> None:
-    """Siembra el menú premium si la tabla está vacía."""
-    try:
-        conn = get_connection_direct()
+def seed_menu_premium(conn: sqlite3.Connection | None = None) -> None:
+    """Siembra el menu premium si la tabla esta vacia."""
+    own_connection = conn is None
+    if conn is None:
         try:
-            cur = conn.execute("SELECT COUNT(*) AS cnt FROM productos_menu")
-            row = cur.fetchone()
-            count = row["cnt"] if hasattr(row, "__getitem__") else row[0]
-            if count == 0:
-                _seed_menu_premium(conn)
-                conn.commit()
-        finally:
-            conn.close()
+            conn = get_connection_direct()
+        except Exception:
+            return
+    try:
+        cur = conn.execute("SELECT COUNT(*) AS cnt FROM productos_menu")
+        row = cur.fetchone()
+        count = row["cnt"] if hasattr(row, "__getitem__") else row[0]
+        if count and int(count) > 0:
+            return
+        platos = [
+            ("Provolone con mermelada de tomates y pesto, con escabeches y focaccia", 12000, "Entradas"),
+            ("Pera asada con queso azul, nueces y miel sobre verdes", 12000, "Entradas"),
+            ("Duo empanadas carne cortada a cuchillo / humita y mozzarella", 12000, "Entradas"),
+            ("Carpaccio de lomo curado, crema de parmesano, alcaparras, pistacho tostados, focaccia y hojas verdes fritas", 12000, "Entradas"),
+            ("Tabla charcuteria de elaboracion propia, quesos, escabeches, alioli de ajo", 12000, "Entradas"),
+            ("Rotolo di tata (de cabrito y verduras)", 15000, "Pastas"),
+            ("Lasana de pollo y espinaca al forno", 15000, "Pastas"),
+            ("Creps de espinaca y parmesano con finas hierbas", 15000, "Pastas"),
+            ("Cintas anchas en tinta de sepia con crema de mariscos", 15000, "Pastas"),
+            ("Noquis boniato con manteca y almendras tostadas", 15000, "Pastas"),
+            ("Cintas finas al huevo con fileto y estofado", 15000, "Pastas"),
+            ("Cintas finas al huevo con crema de hongos de pino", 15000, "Pastas"),
+            ("Cintas finas al huevo a la carbonara", 15000, "Pastas"),
+            ("Ojo de bife con aligot de papa y salsa criolla", 22000, "Carnes"),
+            ("Ojo de bife con salsa patron", 22000, "Carnes"),
+            ("Ojo de bife con salsa de hongos", 22000, "Carnes"),
+            ("Lomo en demiglase con terrina de papa y vegetales glaseados", 22000, "Carnes"),
+            ("Bondiola ahumada en reduccion de miel y jengibre con batatas rotas", 22000, "Carnes"),
+            ("Milanesa de entrecot con fideos al huevo con crema de hierbas", 22000, "Carnes"),
+            ("Salmon rosado con manteca de lima y azafran acompanado de ensalada tibia", 18000, "Pescados"),
+            ("Trucha con alcaparras, manteca, naranja y miel, acompanado de papines y verduras salteadas", 18000, "Pescados"),
+            ("Pacu con papas rusticas y hojas verdes acompanados de salsa criolla", 18000, "Pescados"),
+            ("Locro criollo con verdeo picante", 13000, "Comidas Criollas"),
+            ("Humita", 13000, "Comidas Criollas"),
+            ("Guiso de lentejas", 13000, "Comidas Criollas"),
+            ("Tiramisu", 8000, "Postres"),
+            ("Lingote de chocolate", 8000, "Postres"),
+            ("Flan tradicional", 8000, "Postres"),
+            ("Panna cotta con frutos rojos", 8000, "Postres"),
+            ("Tarta vasca", 8000, "Postres"),
+        ]
+        for nombre, precio, categoria in platos:
+            conn.execute(
+                "INSERT OR IGNORE INTO productos_menu (nombre, precio_venta, categoria, activo) VALUES (?, ?, ?, 1)",
+                (nombre, precio, categoria),
+            )
+        if own_connection:
+            conn.commit()
     except Exception:
         pass
+    finally:
+        if own_connection:
+            try:
+                conn.close()
+            except Exception:
+                pass
