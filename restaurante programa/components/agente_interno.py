@@ -23,7 +23,7 @@ def estado_general() -> dict:
     except Exception:
         r["caja_abierta"] = False
     try:
-        r["mesas_ocupadas"] = len(rows("SELECT 1 FROM mesas WHERE estado='ocupida'") or [])
+        r["mesas_ocupadas"] = len(rows("SELECT 1 FROM mesas WHERE estado='ocupada'") or [])
         r["mesas_totales"] = rows("SELECT COUNT(*) c FROM mesas")[0]["c"]
     except Exception:
         r["mesas_ocupadas"] = r["mesas_totales"] = 0
@@ -111,6 +111,22 @@ def alertas_activas() -> list[dict]:
     except Exception:
         pass
     return alertas
+
+
+def pedidos_activos() -> list[dict]:
+    """Retorna los pedidos activos (pendiente, en_cocina, listo) para diagnostico."""
+    try:
+        return rows("""
+            SELECT pc.id_pedido, pc.fecha_hora, pc.estado_comanda,
+                   m.numero_mesa, u.nombre || ' ' || u.apellido AS mozo
+            FROM pedidos_cabecera pc
+            JOIN mesas m ON m.id_mesa = pc.id_mesa
+            JOIN usuarios u ON u.id_usuario = pc.id_usuario
+            WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo')
+            ORDER BY pc.fecha_hora ASC
+        """) or []
+    except Exception:
+        return []
 
 
 def sugerencias() -> list[str]:

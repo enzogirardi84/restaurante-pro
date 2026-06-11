@@ -276,6 +276,7 @@ def _tab_agente_ia():
     )
 
     with solapa_info:
+        from components.agente_interno import pedidos_activos
         e = estado_general()
         cols = st.columns(5)
         cols[0].metric("Caja", "Abierta" if e.get("caja_abierta") else "Cerrada")
@@ -294,6 +295,13 @@ def _tab_agente_ia():
                 st.info(s)
         else:
             st.success("Todo en orden!")
+        with st.expander("Pedidos activos (diagnostico)", expanded=True):
+            act = pedidos_activos()
+            if act:
+                for p in act:
+                    st.write(f"#{p['id_pedido']} | Mesa {p['numero_mesa']} | {p['estado_comanda']} | {p['mozo']} | {p['fecha_hora']}")
+            else:
+                st.info("No hay pedidos activos en este momento.")
 
     with solapa_alertas:
         al = alertas_activas()
