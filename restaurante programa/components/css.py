@@ -100,6 +100,10 @@ def inject_styles() -> None:
             div.stTextInput, div.stTextArea, div.stSelectbox {
                 margin-bottom: 0.4rem !important;
             }
+            div[data-baseweb="popover"] div[role="listbox"] {
+                max-height: 17rem !important;
+                overflow-y: auto !important;
+            }
             /* Metric cards mas compactas */
             div[data-testid="metric-container"] {
                 background: white;
@@ -258,27 +262,28 @@ def inject_styles() -> None:
             }
 
             /* Login "El Patr\u00f3n" (Hacienda Heritage - Vintage) */
-            .login-header { text-align: center; margin-bottom: 18px; }
+            .login-header { text-align: center; margin-bottom: 24px; }
             .login-logo-img {
                 display: block;
-                width: 112px;
-                height: 112px;
+                width: 128px;
+                height: 128px;
                 object-fit: cover;
-                border-radius: 10px;
-                margin: 0 auto 12px;
+                border-radius: 8px;
+                margin: 0 auto 14px;
                 border: 1px solid var(--color-borde);
                 box-shadow: 0 6px 18px rgba(66, 42, 32, 0.18);
             }
             .login-badge {
-                background: #3e2723; color: white; display: inline-block;
+                background: #3e2723; color: white; display: block;
+                width: fit-content; margin: 0 auto 10px;
                 padding: 4px 12px; font-size: 12px; font-weight: bold;
-                letter-spacing: 2px; margin-bottom: 10px;
+                letter-spacing: 2px;
             }
-            .login-title { font-size: 30px; color: var(--color-cuero); font-weight: 700; line-height: 1.08; }
-            .login-separator { color: var(--color-cuero); font-size: 13px; margin: 8px 0 0; }
+            .login-title { font-size: 32px; color: var(--color-cuero); font-weight: 700; }
+            .login-separator { color: var(--color-cuero); font-size: 14px; margin: 10px 0; }
             .login-label {
-                display: block; font-size: 11px; font-weight: bold;
-                color: #3f332b; margin: 0.75rem 0 0.35rem; letter-spacing: 1.4px;
+                display: block; font-size: 12px; font-weight: bold;
+                color: #444; margin-bottom: 8px; letter-spacing: 1px;
             }
             .login-input-wrapper { position: relative; margin-bottom: 20px; }
             .login-input {
@@ -308,7 +313,7 @@ def inject_styles() -> None:
             [data-testid="stAppViewContainer"] .stTextInput input {
                 width: 100% !important; padding: 12px 2.5rem 12px 2.5rem !important;
                 background: #f8f1e5 !important; border: 1px solid var(--color-borde) !important;
-                border-radius: 8px !important; font-size: 16px !important;
+                border-radius: 4px !important; font-size: 16px !important;
                 color: var(--color-cuero) !important;
                 font-family: 'Libre Caslon Text', serif !important;
                 min-height: unset !important; line-height: 1.4 !important;
@@ -337,8 +342,8 @@ def inject_styles() -> None:
             [data-testid="stAppViewContainer"] .stButton button[kind="primary"] {
                 width: 100% !important; background: var(--color-cuero) !important;
                 color: white !important; padding: 14px !important; border: none !important;
-                border-radius: 8px !important; font-weight: bold !important;
-                font-size: 17px !important; cursor: pointer !important;
+                border-radius: 4px !important; font-weight: bold !important;
+                font-size: 18px !important; cursor: pointer !important;
                 margin-bottom: 12px !important; transition: background 0.3s !important;
                 font-family: 'Libre Caslon Text', serif !important;
                 min-height: unset !important; line-height: 1.4 !important;
@@ -350,7 +355,7 @@ def inject_styles() -> None:
                 width: 100% !important; background: transparent !important;
                 color: var(--color-cuero) !important; padding: 12px !important;
                 border: 1px solid var(--color-borde) !important;
-                border-radius: 8px !important; font-weight: bold !important;
+                border-radius: 4px !important; font-weight: bold !important;
                 font-size: 14px !important; cursor: pointer !important;
                 font-family: 'Libre Caslon Text', serif !important;
                 min-height: unset !important; line-height: 1.4 !important;
@@ -358,12 +363,10 @@ def inject_styles() -> None:
             [data-testid="stAppViewContainer"] .stButton button:not([kind="primary"]):hover {
                 border-color: var(--color-cuero) !important;
             }
-            .login-footer { text-align: center; margin-top: 18px; font-size: 12px; color: #7b6a5f; border-top: 1px solid rgba(180,138,99,0.45); padding-top: 14px; }
-            .footer-title { color: var(--color-cuero); font-size: 0.72rem; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 0.35rem; }
-            .footer-links { display: inline-flex; align-items: center; justify-content: center; gap: 0.55rem; }
-            .footer-links a { color: #6f5b50; text-decoration: none; margin: 0; font-weight: 700; }
+            .login-footer { text-align: center; margin-top: 40px; font-size: 12px; color: #888; border-top: 1px solid var(--color-borde); padding-top: 20px; }
+            .footer-links a { color: #888; text-decoration: none; margin: 0 4px; }
             .footer-links a:hover { color: var(--color-cuero); text-decoration: underline; }
-            .active-users { display: none !important; }
+            .active-users { margin-top: 10px; color: var(--color-cuero); }
 
             .sidebar-brand-shell {
                 padding: 0.25rem 0 0.9rem;
@@ -498,118 +501,6 @@ def inject_styles() -> None:
                 letter-spacing: -0.02em;
             }
 
-            /* Dashboard panel */
-            .panel-overview {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 0.75rem;
-                flex-wrap: wrap;
-                background: linear-gradient(135deg, #1e1c19 0%, #3b2b24 100%);
-                color: white;
-                border-radius: var(--radius);
-                padding: 0.85rem 1rem;
-                margin: 0 0 0.9rem;
-                box-shadow: var(--shadow-md);
-            }
-            .panel-overview-label {
-                color: #d8cfc3;
-                font-size: 0.72rem;
-                font-weight: 800;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-            }
-            .panel-overview-title {
-                font-size: 1.15rem;
-                font-weight: 850;
-                line-height: 1.15;
-            }
-            .panel-overview-chip {
-                border: 1px solid rgba(255,255,255,0.16);
-                background: rgba(255,255,255,0.08);
-                border-radius: 999px;
-                padding: 0.32rem 0.7rem;
-                font-weight: 760;
-                white-space: nowrap;
-                font-size: 0.84rem;
-            }
-            .panel-alerts {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 0.45rem;
-                margin: 0.25rem 0 0.9rem;
-            }
-            .panel-alerts span {
-                display: inline-flex;
-                align-items: center;
-                border: 1px solid #e2c58c;
-                background: #fff3dc;
-                color: #6b4300;
-                border-radius: 999px;
-                padding: 0.28rem 0.65rem;
-                font-size: 0.82rem;
-                font-weight: 760;
-            }
-            .panel-card {
-                background: var(--panel);
-                border: 1px solid var(--line);
-                border-radius: var(--radius);
-                padding: 0.9rem 1rem;
-                box-shadow: var(--shadow-sm);
-                min-height: 150px;
-                margin: 0.35rem 0 1rem;
-            }
-            .panel-card-title {
-                color: var(--muted);
-                font-size: 0.78rem;
-                font-weight: 820;
-                letter-spacing: 0.06em;
-                text-transform: uppercase;
-                margin-bottom: 0.55rem;
-            }
-            .panel-status-value {
-                font-size: 1.22rem;
-                font-weight: 850;
-                color: var(--ink);
-                line-height: 1.2;
-            }
-            .panel-status-detail {
-                color: var(--muted);
-                font-size: 0.88rem;
-                margin-top: 0.35rem;
-                line-height: 1.35;
-            }
-            .panel-list-row {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 0.8rem;
-                border-bottom: 1px solid #ece6dd;
-                padding: 0.46rem 0;
-                font-size: 0.92rem;
-            }
-            .panel-list-row:last-child { border-bottom: none; }
-            .panel-list-row b {
-                color: var(--ink);
-                font-weight: 850;
-                white-space: nowrap;
-            }
-            .panel-empty {
-                border: 1px dashed var(--line-strong);
-                background: var(--panel-soft);
-                color: var(--muted);
-                border-radius: var(--radius-sm);
-                padding: 0.8rem;
-                text-align: center;
-                font-weight: 700;
-            }
-            .panel-section-title {
-                font-size: 1.25rem;
-                font-weight: 850;
-                color: var(--ink);
-                margin: 0.9rem 0 0.45rem;
-            }
-
             /* KPI Metric override */
             div[data-testid="stMetric"] {
                 background: var(--panel);
@@ -667,7 +558,7 @@ def inject_styles() -> None:
             /* Waiter chips */
             .waiter-strip {
                 display: grid;
-                grid-template-columns: repeat(4, minmax(0, 1fr));
+                grid-template-columns: repeat(5, minmax(0, 1fr));
                 gap: 0.6rem;
                 margin-bottom: 0.85rem;
             }
@@ -694,6 +585,63 @@ def inject_styles() -> None:
                 font-weight: 880;
                 line-height: 1.15;
             }
+            .waiter-control-panel {
+                background: var(--panel);
+                border: 1px solid var(--line);
+                border-radius: var(--radius);
+                padding: 0.75rem 0.85rem;
+                margin: 0.75rem 0 0.85rem;
+                box-shadow: var(--shadow-sm);
+            }
+            .waiter-control-title {
+                color: var(--muted);
+                font-size: 0.78rem;
+                font-weight: 800;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                margin-bottom: 0.45rem;
+            }
+            .waiter-helper {
+                color: var(--muted);
+                font-size: 0.86rem;
+                margin: 0.2rem 0 0.65rem;
+            }
+            .salon-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 1rem;
+                margin: 0.9rem 0 0.45rem;
+            }
+            .salon-title {
+                font-size: 1.35rem;
+                font-weight: 850;
+                line-height: 1.15;
+            }
+            .salon-legend {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.45rem;
+                color: var(--muted);
+                font-size: 0.78rem;
+                font-weight: 760;
+            }
+            .legend-dot {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.25rem;
+                white-space: nowrap;
+            }
+            .legend-dot::before {
+                content: "";
+                width: 0.58rem;
+                height: 0.58rem;
+                border-radius: 999px;
+                background: #8f8a82;
+            }
+            .legend-dot.busy::before { background: var(--blue); }
+            .legend-dot.bill::before { background: var(--amber); }
+            .legend-dot.reserved::before { background: #7b1fa2; }
 
             /* Table cards */
             .table-card {
@@ -702,7 +650,7 @@ def inject_styles() -> None:
                 border-left: 5px solid #9a958c;
                 border-radius: var(--radius-sm);
                 padding: 0.78rem;
-                min-height: 118px;
+                min-height: 128px;
                 box-shadow: var(--shadow-sm);
                 margin-bottom: 0.5rem;
                 transition: all 0.25s ease;
@@ -723,6 +671,13 @@ def inject_styles() -> None:
                 font-size: 0.84rem;
                 margin-top: 0.25rem;
             }
+            .table-card-meta b {
+                color: var(--ink);
+                white-space: nowrap;
+            }
+            .table-card-actions {
+                margin-bottom: 1rem;
+            }
 
             /* Ready order */
             .ready-order {
@@ -735,6 +690,16 @@ def inject_styles() -> None:
             }
             .ready-order:hover {
                 background: #e5f3e8;
+            }
+            .ready-title {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 1rem;
+                margin: 0.85rem 0 0.45rem;
+            }
+            .ready-title h3 {
+                margin: 0 !important;
             }
 
             /* Note presets */
@@ -784,6 +749,15 @@ def inject_styles() -> None:
                 font-size: 1.2rem;
                 font-weight: 850;
                 margin-bottom: 0.5rem;
+            }
+            .cart-empty {
+                border: 1px dashed var(--line-strong);
+                border-radius: var(--radius-sm);
+                padding: 0.85rem;
+                color: var(--muted);
+                background: var(--panel-soft);
+                text-align: center;
+                font-weight: 700;
             }
 
             /* KDS Kitchen */
@@ -1248,6 +1222,7 @@ def inject_styles() -> None:
                 .terminal-bar { flex-direction: column; align-items: flex-start; }
                 .terminal-chip { width: 100%; text-align: center; }
                 .waiter-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                .salon-head { align-items: flex-start; flex-direction: column; }
                 .cart-panel { position: static; margin-top: 1rem; }
                 .pay-panel { position: static; }
                 .kds-head { align-items: flex-start; flex-direction: column; }
