@@ -441,3 +441,93 @@ def confirmar_pedido_cocina(id_pedido: int) -> dict:
         return {"ok": False, "error": str(e)}
     finally:
         conn.close()
+
+def avanzar_estado(id_pedido: int, estado_actual: str) -> dict:
+    """
+    Avanza el estado de un pedido en el flujo KDS:
+      pendiente → en_cocina → listo
+    """
+    transiciones = {
+        "pendiente": "en_cocina",
+        "en_cocina": "listo",
+    }
+    nuevo_estado = transiciones.get(estado_actual)
+    if not nuevo_estado:
+        return {"ok": False, "error": f"Estado '{estado_actual}' no tiene transición definida."}
+
+    # Si va a 'listo', usar la función atómica que descuenta stock
+    if nuevo_estado == "listo":
+        return confirmar_pedido_cocina(id_pedido)
+
+    # Para pendiente → en_cocina, update simple
+    conn = get_connection_direct()
+    try:
+        p = ph()
+        cur = conn.execute(
+            f"SELECT estado_comanda FROM pedidos_cabecera WHERE id_pedido = {p}",
+            (id_pedido,)
+        )
+        row = cur.fetchone()
+        if row is None:
+            return {"ok": False, "error": f"Pedido {id_pedido} no existe."}
+
+        estado_db = row["estado_comanda"]
+        if estado_db != estado_actual:
+            return {"ok": False, "error": f"Estado actual en DB es '{estado_db}', no '{estado_actual}'."}
+
+        conn.execute(
+            f"UPDATE pedidos_cabecera SET estado_comanda = {p} WHERE id_pedido = {p}",
+            (nuevo_estado, id_pedido)
+        )
+        conn.commit()
+        return {"ok": True, "advertencias": []}
+    except Exception as e:
+        conn.rollback()
+        return {"ok": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def obtener_pedidos_por_estado() -> dict[str, list[dict]]:
+    """
+    Retorna comandas agrupadas por estado para el KDS.
+    Siempre incluye las keys: pendiente, en_cocina, listo.
+    """
+    grupos: dict[str, list[dict]] = {"pendiente": [], "en_cocina": [], "listo": []}
+
+    conn = get_connection_direct()
+    try:
+        agg = str_agg("pm.nombre || ' x' || pd.cantidad")
+        rows = conn.execute(f"""
+            SELECT
+                pc.id_pedido       AS id,
+                pc.fecha_hora      AS fecha,
+                pc.estado_comanda  AS estado,
+                m.numero_mesa      AS mesa,
+                u.nombre || ' ' || u.apellido AS mozo,
+                {agg}              AS detalle
+            FROM pedidos_cabecera pc
+            JOIN mesas m         ON m.id_mesa      = pc.id_mesa
+            JOIN usuarios u      ON u.id_usuario   = pc.id_usuario
+            JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
+            JOIN productos_menu pm ON pm.id_producto = pd.id_producto
+            WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo')
+              AND (pd.cantidad - COALESCE(pd.cantidad_anulada, 0)) > 0
+            GROUP BY pc.id_pedido, pc.fecha_hora, pc.estado_comanda,
+                     m.numero_mesa, u.nombre, u.apellido
+            ORDER BY pc.fecha_hora ASC
+        """).fetchall()
+    finally:
+        conn.close()
+
+    for r in rows:
+        estado = r["estado"]
+        if estado in grupos:
+            grupos[estado].append(dict(r))
+
+    return grupos
+
+
+def seed_pedidos_demo() -> None:
+    """Compatibilidad: no hace nada si ya hay datos."""
+    pass
