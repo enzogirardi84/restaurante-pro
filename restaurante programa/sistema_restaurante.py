@@ -1985,7 +1985,7 @@ def page_cocina() -> None:
   # ── Chef view + controles ─────────────────────────────────────
     top_left, top_right = st.columns([2.2, 1])
     with top_left:
-        st.markdown("<div class='kds-summary'><div class='kds-summary-title'>Chef view — producción activa</div>", unsafe_allow_html=True)
+        st.markdown("<div class='kds-summary'><div class='kds-summary-title'>Chef view — producción activa</div><div class='kds-summary-body'>", unsafe_allow_html=True)
         if resumen_chef_activo:
             for item in resumen_chef_activo:
                 st.markdown(
@@ -1994,7 +1994,7 @@ def page_cocina() -> None:
                 )
         else:
             st.markdown("<span class='muted'>Sin producción activa.</span>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div></div>", unsafe_allow_html=True)
     with top_right:
         btn_c1, btn_c2 = st.columns(2)
         with btn_c1:
@@ -2152,17 +2152,33 @@ def page_cocina() -> None:
 
     st.markdown("""
     <style>
-    .kb-col { border-radius:12px; padding:.65rem .7rem 1rem; min-height:120px; }
+    .kds-summary { margin-bottom:.45rem; }
+    .kds-summary-body { max-height:190px; overflow-y:auto; padding-right:.25rem; }
+    .kds-summary-body::-webkit-scrollbar,
+    div[data-testid="stVerticalBlockBorderWrapper"]::-webkit-scrollbar,
+    div[data-testid="stVerticalBlock"]::-webkit-scrollbar { width:8px; }
+    .kds-summary-body::-webkit-scrollbar-thumb,
+    div[data-testid="stVerticalBlockBorderWrapper"]::-webkit-scrollbar-thumb,
+    div[data-testid="stVerticalBlock"]::-webkit-scrollbar-thumb {
+        background:rgba(93,58,46,.28); border-radius:999px;
+    }
+    .kb-col { border-radius:12px; padding:.58rem .62rem .7rem; min-height:120px; }
     .kb-col.col-pend { background:#f0ece5; border-top:4px solid #9a8a78; }
     .kb-col.col-coci { background:#fff8e6; border-top:4px solid #f4a800; }
     .kb-col.col-list { background:#eaf6ee; border-top:4px solid #28a745; }
-    .kb-col-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:.7rem; }
+    .kb-col-head {
+        display:flex; align-items:center; justify-content:space-between; margin-bottom:.58rem;
+        position:sticky; top:0; z-index:2; padding:.18rem 0 .38rem;
+    }
+    .col-pend .kb-col-head { background:#f0ece5; }
+    .col-coci .kb-col-head { background:#fff8e6; }
+    .col-list .kb-col-head { background:#eaf6ee; }
     .kb-col-title { font-size:.82rem; font-weight:880; text-transform:uppercase; letter-spacing:.06em; }
     .kb-badge { border-radius:999px; padding:.15rem .55rem; font-size:.8rem; font-weight:800; color:white; }
     .col-pend .kb-badge { background:#9a8a78; }
     .col-coci .kb-badge { background:#f4a800; }
     .col-list .kb-badge { background:#28a745; }
-    .kb-card { background:white; border-radius:10px; padding:.72rem .78rem; margin-bottom:.65rem;
+    .kb-card { background:white; border-radius:10px; padding:.62rem .68rem; margin-bottom:.55rem;
                box-shadow:0 1px 4px rgba(0,0,0,.08); border-left:4px solid #ccc; }
     .kb-card.t-ok   { border-left-color:#28a745; }
     .kb-card.t-warn { border-left-color:#f4a800; }
@@ -2171,20 +2187,41 @@ def page_cocina() -> None:
         0%,100% { box-shadow:0 1px 4px rgba(0,0,0,.08); }
         50%      { box-shadow:0 0 0 3px rgba(220,53,69,.18); }
     }
-    .kb-card-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:.45rem; }
+    .kb-card-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:.38rem; gap:.55rem; }
     .kb-card-id   { font-size:1rem; font-weight:900; }
     .kb-card-mesa { font-size:.82rem; color:#6b5e4e; font-weight:700; }
     .kb-timer { font-size:.78rem; font-weight:800; border-radius:999px; padding:.18rem .5rem; white-space:nowrap; }
     .t-ok   .kb-timer { background:#d4edda; color:#155724; }
     .t-warn .kb-timer { background:#fff3cd; color:#7a5200; }
     .t-crit .kb-timer { background:#f8d7da; color:#721c24; }
-    .kb-dish { font-size:.88rem; line-height:1.6; }
+    .kb-dish { font-size:.86rem; line-height:1.45; overflow-wrap:anywhere; }
     .kb-dish b { font-size:.95rem; }
     .kb-note { display:inline-block; background:#fff0d6; border-left:2px solid #f4a800;
                border-radius:4px; padding:.1rem .4rem; font-size:.78rem; color:#7a5200; margin-left:.3rem; }
-    .kb-mozo { font-size:.75rem; color:#a09887; margin-top:.4rem; }
+    .kb-mozo { font-size:.75rem; color:#a09887; margin-top:.35rem; }
     .kb-empty { text-align:center; color:#b0a898; font-size:.88rem;
                 padding:1.8rem .5rem; border:2px dashed #d8d0c6; border-radius:8px; }
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        border-color:#e7d8c4 !important;
+        box-shadow:0 1px 8px rgba(66,42,32,.06);
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stButton"] button {
+        min-height:2.75rem !important;
+        margin-top:.35rem;
+    }
+    div[data-testid="column"]:has(.kb-col) > div[data-testid="stVerticalBlock"] {
+        max-height:620px;
+        overflow-y:auto;
+        padding-right:.28rem;
+        scrollbar-width:thin;
+        scrollbar-color:rgba(93,58,46,.32) transparent;
+    }
+    @media (max-width: 900px) {
+        .kds-summary-body { max-height:150px; }
+        div[data-testid="column"]:has(.kb-col) > div[data-testid="stVerticalBlock"] { max-height:520px; }
+        .kb-col { padding:.5rem; }
+        .kb-dish { font-size:.84rem; }
+    }
     </style>
     """, unsafe_allow_html=True)
 
