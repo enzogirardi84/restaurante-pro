@@ -1985,16 +1985,18 @@ def page_cocina() -> None:
   # ── Chef view + controles ─────────────────────────────────────
     top_left, top_right = st.columns([2.2, 1])
     with top_left:
-        st.markdown("<div class='kds-summary'><div class='kds-summary-title'>Chef view — producción activa</div><div class='kds-summary-body'>", unsafe_allow_html=True)
         if resumen_chef_activo:
-            for item in resumen_chef_activo:
-                st.markdown(
-                    f"<div class='kds-summary-line'><span>{escape(item['nombre'])}</span><b>{int(item['cantidad'])}</b></div>",
-                    unsafe_allow_html=True,
-                )
+            resumen_html = "".join(
+                f"<div class='kds-summary-line'><span>{escape(item['nombre'])}</span><b>{int(item['cantidad'])}</b></div>"
+                for item in resumen_chef_activo
+            )
         else:
-            st.markdown("<span class='muted'>Sin producción activa.</span>", unsafe_allow_html=True)
-        st.markdown("</div></div>", unsafe_allow_html=True)
+            resumen_html = "<span class='muted'>Sin producción activa.</span>"
+        st.markdown(
+            f"<div class='kds-summary'><div class='kds-summary-title'>Chef view — producción activa</div>"
+            f"<div class='kds-summary-body'>{resumen_html}</div></div>",
+            unsafe_allow_html=True,
+        )
     with top_right:
         btn_c1, btn_c2 = st.columns(2)
         with btn_c1:
@@ -2152,8 +2154,15 @@ def page_cocina() -> None:
 
     st.markdown("""
     <style>
-    .kds-summary { margin-bottom:.45rem; }
-    .kds-summary-body { max-height:190px; overflow-y:auto; padding-right:.25rem; }
+    .app-header { padding:.58rem .75rem !important; margin-bottom:.6rem !important; }
+    .app-header h1, .app-header h2, .app-header h3 { font-size:1.08rem !important; margin-bottom:.15rem !important; }
+    .app-header p { font-size:.88rem !important; margin-bottom:0 !important; }
+    div[data-testid="stMetric"] { padding:.45rem .55rem !important; }
+    div[data-testid="stMetricLabel"] { font-size:.72rem !important; }
+    div[data-testid="stMetricValue"] { font-size:1.85rem !important; line-height:1.05 !important; }
+    .kds-summary { margin-bottom:.35rem; padding:.58rem .65rem !important; }
+    .kds-summary-body { max-height:140px; overflow-y:auto; padding-right:.25rem; }
+    .kds-summary-line { font-size:.82rem !important; padding:.18rem 0 !important; }
     .kds-summary-body::-webkit-scrollbar,
     div[data-testid="stVerticalBlockBorderWrapper"]::-webkit-scrollbar,
     div[data-testid="stVerticalBlock"]::-webkit-scrollbar { width:8px; }
@@ -2162,23 +2171,23 @@ def page_cocina() -> None:
     div[data-testid="stVerticalBlock"]::-webkit-scrollbar-thumb {
         background:rgba(93,58,46,.28); border-radius:999px;
     }
-    .kb-col { border-radius:12px; padding:.58rem .62rem .7rem; min-height:120px; }
+    .kb-col { border-radius:10px; padding:.45rem .48rem .55rem; min-height:100px; }
     .kb-col.col-pend { background:#f0ece5; border-top:4px solid #9a8a78; }
     .kb-col.col-coci { background:#fff8e6; border-top:4px solid #f4a800; }
     .kb-col.col-list { background:#eaf6ee; border-top:4px solid #28a745; }
     .kb-col-head {
-        display:flex; align-items:center; justify-content:space-between; margin-bottom:.58rem;
-        position:sticky; top:0; z-index:2; padding:.18rem 0 .38rem;
+        display:flex; align-items:center; justify-content:space-between; margin-bottom:.42rem;
+        position:sticky; top:0; z-index:2; padding:.12rem 0 .28rem;
     }
     .col-pend .kb-col-head { background:#f0ece5; }
     .col-coci .kb-col-head { background:#fff8e6; }
     .col-list .kb-col-head { background:#eaf6ee; }
-    .kb-col-title { font-size:.82rem; font-weight:880; text-transform:uppercase; letter-spacing:.06em; }
-    .kb-badge { border-radius:999px; padding:.15rem .55rem; font-size:.8rem; font-weight:800; color:white; }
+    .kb-col-title { font-size:.74rem; font-weight:880; text-transform:uppercase; letter-spacing:.04em; }
+    .kb-badge { border-radius:999px; padding:.1rem .45rem; font-size:.72rem; font-weight:800; color:white; }
     .col-pend .kb-badge { background:#9a8a78; }
     .col-coci .kb-badge { background:#f4a800; }
     .col-list .kb-badge { background:#28a745; }
-    .kb-card { background:white; border-radius:10px; padding:.62rem .68rem; margin-bottom:.55rem;
+    .kb-card { background:white; border-radius:8px; padding:.46rem .52rem; margin-bottom:.34rem;
                box-shadow:0 1px 4px rgba(0,0,0,.08); border-left:4px solid #ccc; }
     .kb-card.t-ok   { border-left-color:#28a745; }
     .kb-card.t-warn { border-left-color:#f4a800; }
@@ -2187,40 +2196,43 @@ def page_cocina() -> None:
         0%,100% { box-shadow:0 1px 4px rgba(0,0,0,.08); }
         50%      { box-shadow:0 0 0 3px rgba(220,53,69,.18); }
     }
-    .kb-card-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:.38rem; gap:.55rem; }
-    .kb-card-id   { font-size:1rem; font-weight:900; }
-    .kb-card-mesa { font-size:.82rem; color:#6b5e4e; font-weight:700; }
-    .kb-timer { font-size:.78rem; font-weight:800; border-radius:999px; padding:.18rem .5rem; white-space:nowrap; }
+    .kb-card-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:.26rem; gap:.45rem; }
+    .kb-card-id   { font-size:.9rem; font-weight:900; }
+    .kb-card-mesa { font-size:.74rem; color:#6b5e4e; font-weight:700; }
+    .kb-timer { font-size:.68rem; font-weight:800; border-radius:999px; padding:.12rem .38rem; white-space:nowrap; }
     .t-ok   .kb-timer { background:#d4edda; color:#155724; }
     .t-warn .kb-timer { background:#fff3cd; color:#7a5200; }
     .t-crit .kb-timer { background:#f8d7da; color:#721c24; }
-    .kb-dish { font-size:.86rem; line-height:1.45; overflow-wrap:anywhere; }
-    .kb-dish b { font-size:.95rem; }
+    .kb-dish { font-size:.76rem; line-height:1.28; overflow-wrap:anywhere; }
+    .kb-dish b { font-size:.82rem; }
     .kb-note { display:inline-block; background:#fff0d6; border-left:2px solid #f4a800;
-               border-radius:4px; padding:.1rem .4rem; font-size:.78rem; color:#7a5200; margin-left:.3rem; }
-    .kb-mozo { font-size:.75rem; color:#a09887; margin-top:.35rem; }
-    .kb-empty { text-align:center; color:#b0a898; font-size:.88rem;
-                padding:1.8rem .5rem; border:2px dashed #d8d0c6; border-radius:8px; }
+               border-radius:4px; padding:.05rem .28rem; font-size:.68rem; color:#7a5200; margin-left:.22rem; }
+    .kb-mozo { font-size:.68rem; color:#a09887; margin-top:.25rem; }
+    .kb-empty { text-align:center; color:#b0a898; font-size:.78rem;
+                padding:1.25rem .45rem; border:2px dashed #d8d0c6; border-radius:8px; }
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-color:#e7d8c4 !important;
         box-shadow:0 1px 8px rgba(66,42,32,.06);
     }
     div[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stButton"] button {
-        min-height:2.75rem !important;
-        margin-top:.35rem;
+        min-height:2.25rem !important;
+        margin-top:.12rem;
+        margin-bottom:.34rem;
+        font-size:.82rem !important;
+        padding:.35rem .45rem !important;
     }
     div[data-testid="column"]:has(.kb-col) > div[data-testid="stVerticalBlock"] {
-        max-height:620px;
+        max-height:560px;
         overflow-y:auto;
         padding-right:.28rem;
         scrollbar-width:thin;
         scrollbar-color:rgba(93,58,46,.32) transparent;
     }
     @media (max-width: 900px) {
-        .kds-summary-body { max-height:150px; }
-        div[data-testid="column"]:has(.kb-col) > div[data-testid="stVerticalBlock"] { max-height:520px; }
+        .kds-summary-body { max-height:120px; }
+        div[data-testid="column"]:has(.kb-col) > div[data-testid="stVerticalBlock"] { max-height:500px; }
         .kb-col { padding:.5rem; }
-        .kb-dish { font-size:.84rem; }
+        .kb-dish { font-size:.78rem; }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -2256,7 +2268,7 @@ def page_cocina() -> None:
 
     # ── Columna PENDIENTE ─────────────────────────────────────────
     with col_pend:
-        cards_html = "".join(_card_html(p) for p in pendientes) if pendientes else "<div class='kb-empty'>Sin comandas</div>"
+        cards_html = "" if pendientes else "<div class='kb-empty'>Sin comandas</div>"
         st.markdown(
             f"<div class='kb-col col-pend'>"
             f"<div class='kb-col-head'><span class='kb-col-title'>⏳ Pendiente</span>"
@@ -2265,6 +2277,7 @@ def page_cocina() -> None:
             unsafe_allow_html=True,
         )
         for pedido in pendientes:
+            st.markdown(_card_html(pedido), unsafe_allow_html=True)
             _pc1, _pc2 = st.columns(2)
             with _pc1:
                 if st.button(f"▶ Iniciar  #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
@@ -2295,7 +2308,7 @@ def page_cocina() -> None:
 
     # ── Columna EN COCINA ─────────────────────────────────────────
     with col_coci:
-        cards_html = "".join(_card_html(p) for p in en_cocina) if en_cocina else "<div class='kb-empty'>Nada en preparación</div>"
+        cards_html = "" if en_cocina else "<div class='kb-empty'>Nada en preparación</div>"
         st.markdown(
             f"<div class='kb-col col-coci'>"
             f"<div class='kb-col-head'><span class='kb-col-title'>🔥 En preparación</span>"
@@ -2304,6 +2317,7 @@ def page_cocina() -> None:
             unsafe_allow_html=True,
         )
         for pedido in en_cocina:
+            st.markdown(_card_html(pedido), unsafe_allow_html=True)
             if st.button(f"🚀 Listo  #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
                          key=f"kb_list_{pedido['id_pedido']}", type="primary", use_container_width=True):
                 res = _avanzar_estado_supabase(pedido["id_pedido"], "en_cocina")
@@ -2319,7 +2333,7 @@ def page_cocina() -> None:
 
     # ── Columna LISTO ─────────────────────────────────────────────
     with col_list:
-        cards_html = "".join(_card_html(p, alertar_demora=False) for p in listos) if listos else "<div class='kb-empty'>Nada listo todavía</div>"
+        cards_html = "" if listos else "<div class='kb-empty'>Nada listo todavía</div>"
         st.markdown(
             f"<div class='kb-col col-list'>"
             f"<div class='kb-col-head'><span class='kb-col-title'>✅ Listo para servir</span>"
@@ -2328,6 +2342,7 @@ def page_cocina() -> None:
             unsafe_allow_html=True,
         )
         for pedido in listos:
+            st.markdown(_card_html(pedido, alertar_demora=False), unsafe_allow_html=True)
             st.caption(f"#{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}")
 
 
