@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import mimetypes
 import secrets
 from pathlib import Path
 
 
 HASH_PREFIX = "pbkdf2_sha256"
 HASH_ITERATIONS = 260_000
-LOGIN_LOGO_PATH = Path(__file__).parent / "assets" / "image.png"
+LOGIN_LOGO_PATH = Path(__file__).parent / "assets" / "logo-el-patron.jpeg"
 
 
 def hash_password(password: str) -> str:
@@ -53,7 +54,8 @@ def login_logo_tag() -> str:
     if not path.exists():
         return ""
     b64 = base64.b64encode(path.read_bytes()).decode()
-    return f'<img src="data:image/png;base64,{b64}" alt="Logo El Patron" class="login-logo-img">'
+    mime = mimetypes.guess_type(path.name)[0] or "image/png"
+    return f'<img src="data:{mime};base64,{b64}" alt="Logo El Patron" class="login-logo-img">'
 
 
 def login_logo_path() -> Path:
