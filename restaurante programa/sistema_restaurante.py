@@ -1923,6 +1923,26 @@ def _avanzar_estado_supabase(id_pedido: int, estado_actual: str) -> dict:
     return res_local
 
 
+def _archivar_pedido_listo_cocina(id_pedido: int) -> dict:
+    """Saca un pedido listo del tablero de cocina marcandolo como entregado."""
+    res_local = marcar_pedido_entregado(id_pedido)
+    if not res_local.get("ok"):
+        return res_local
+    if using_postgres():
+        return res_local
+    sb = _get_supabase()
+    if not sb:
+        return res_local
+    try:
+        sb.table("pedidos_cabecera")\
+            .update({"estado_comanda": "entregado"})\
+            .eq("id_pedido", id_pedido)\
+            .execute()
+    except Exception:
+        pass
+    return res_local
+
+
 def page_cocina() -> None:
     procesar_cola_sincronizacion()
     cierre_vencidos = cerrar_pedidos_vencidos()
@@ -2338,6 +2358,16 @@ def page_cocina() -> None:
         )
         for pedido in listos:
             st.markdown(_card_html(pedido, alertar_demora=False), unsafe_allow_html=True)
+            if st.button(
+                f"Archivar #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
+                key=f"kb_archive_{pedido['id_pedido']}",
+                use_container_width=True,
+            ):
+                res = _archivar_pedido_listo_cocina(pedido["id_pedido"])
+                if res["ok"]:
+                    registrar_auditoria("cocina", "pedido_archivado", str(pedido["id_pedido"]))
+                    st.rerun()
+                st.error(res["error"])
             st.caption(f"#{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}")
 
 
