@@ -47,19 +47,18 @@ def page_sistema() -> None:
     cols[3].metric("Sync pend.", pendientes)
     cols[4].metric("Modo", "Supabase" if postgres_mode else "SQLite")
 
-    tab_config, tab_monitor, tab_sync, tab_logs, tab_agente = st.tabs(
-        ["Configuracion", "Monitoreo", "Sincronizacion", "Auditoria", "Agente IA"]
-    )
+    tabs = ["Configuracion", "Monitoreo", "Sincronizacion", "Auditoria", "Agente IA"]
+    tab_activa = st.radio("Seccion", tabs, horizontal=True, label_visibility="collapsed")
 
-    with tab_config:
+    if tab_activa == "Configuracion":
         _tab_configuracion()
-    with tab_monitor:
+    elif tab_activa == "Monitoreo":
         _tab_monitoreo()
-    with tab_sync:
+    elif tab_activa == "Sincronizacion":
         _tab_sincronizacion()
-    with tab_logs:
+    elif tab_activa == "Auditoria":
         _tab_auditoria()
-    with tab_agente:
+    elif tab_activa == "Agente IA":
         _tab_agente_ia()
 
 
@@ -248,7 +247,23 @@ def _tab_auditoria():
         return
 
     df = pd.DataFrame(logs)
-    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+    if "created_at" in df.columns:
+        df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+    elif "fecha_hora" in df.columns:
+        df["fecha_hora"] = pd.to_datetime(df["fecha_hora"], errors="coerce")
+        df = df.rename(columns={"fecha_hora": "created_at"})
+    elif "fecha" in df.columns:
+        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
+        df = df.rename(columns={"fecha": "created_at"})
+    elif "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df = df.rename(columns={"timestamp": "created_at"})
+    elif "created" in df.columns:
+        df["created"] = pd.to_datetime(df["created"], errors="coerce")
+        df = df.rename(columns={"created": "created_at"})
+    else:
+        st.info("No hay registros de auditoria disponibles.")
+        return
     df = df.rename(columns={"id_log": "ID", "usuario": "Usuario", "accion": "Accion",
                             "detalle": "Detalle", "created_at": "Fecha"})
 

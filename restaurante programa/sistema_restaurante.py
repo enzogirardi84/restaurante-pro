@@ -949,7 +949,33 @@ def calcular_precio_promocion(categoria: str, precio: float) -> float:
 
 
 def get_mesas() -> list[dict]:
-    return rows("SELECT id_mesa, numero_mesa, estado FROM mesas ORDER BY numero_mesa")
+    return rows("""
+        SELECT id_mesa, numero_mesa, estado
+        FROM mesas
+        WHERE id_mesa IS NOT NULL
+        ORDER BY numero_mesa
+    """)
+
+
+def agregar_mesa(numero: int) -> int:
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "INSERT INTO mesas (numero_mesa, estado) VALUES (?, 'libre')",
+            (int(numero),),
+        )
+        conn.commit()
+        if cur.lastrowid is None:
+            row = conn.execute(
+                "SELECT id_mesa FROM mesas WHERE numero_mesa = ? ORDER BY id_mesa DESC LIMIT 1",
+                (int(numero),),
+            ).fetchone()
+            if row is None or row["id_mesa"] is None:
+                raise ValueError("No se pudo obtener el ID de la mesa creada.")
+            return int(row["id_mesa"])
+        return int(cur.lastrowid)
+    finally:
+        conn.close()
 
 
 def get_mozos() -> list[dict]:
@@ -1681,17 +1707,22 @@ def mesas_para_caja() -> list[dict]:
         JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
         JOIN productos_menu pm ON pm.id_producto = pd.id_producto
         WHERE pc.estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado')
+          AND pc.id_mesa IS NOT NULL
           AND (pd.cantidad - COALESCE(pd.cantidad_cobrada, 0) - COALESCE(pd.cantidad_anulada, 0)) > 0
         GROUP BY pc.id_mesa
     """)
-    por_mesa = {int(t["id_mesa"]): t for t in totales}
+    por_mesa = {int(t["id_mesa"]): t for t in totales if t.get("id_mesa") is not None}
+    mesas_validas = []
     for mesa in mesas:
+        if mesa.get("id_mesa") is None:
+            continue
         total = por_mesa.get(int(mesa["id_mesa"]), {})
         subtotal = float(total.get("subtotal") or 0)
         mesa["pedidos"] = int(total.get("pedidos") or 0)
         mesa["subtotal"] = subtotal
         mesa["total"] = subtotal + service_amount(subtotal)
-    return mesas
+        mesas_validas.append(mesa)
+    return mesas_validas
 
 
 def historial_ventas(limit: int = 5) -> list[dict]:
@@ -3541,7 +3572,7 @@ def page_mesas() -> None:
         nueva = st.number_input("Nueva mesa numero", min_value=1, step=1)
         if st.button("Agregar mesa", use_container_width=True):
             try:
-                execute("INSERT INTO mesas (numero_mesa, estado) VALUES (?, 'libre')", (int(nueva),))
+                agregar_mesa(int(nueva))
                 st.rerun()
             except Exception as exc:
                 st.error(str(exc))
