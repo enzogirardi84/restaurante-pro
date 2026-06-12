@@ -1905,31 +1905,22 @@ def _avanzar_estado_supabase(id_pedido: int, estado_actual: str) -> dict:
     nuevo_estado = transiciones.get(estado_actual)
     if not nuevo_estado:
         return {"ok": False, "error": f"Estado '{estado_actual}' sin transición definida."}
+    res_local = avanzar_estado(id_pedido, estado_actual)
+    if not res_local.get("ok"):
+        return res_local
+    if using_postgres():
+        return res_local
     sb = _get_supabase()
     if not sb:
-        return avanzar_estado(id_pedido, estado_actual)
+        return res_local
     try:
-        res = sb.table("pedidos_cabecera")\
-            .select("estado_comanda")\
-            .eq("id_pedido", id_pedido)\
-            .single()\
-            .execute()
-        if not res.data:
-            return {"ok": False, "error": f"Pedido {id_pedido} no existe."}
-        estado_db = res.data["estado_comanda"]
-        if estado_db == nuevo_estado:
-            return {"ok": True, "advertencias": [], "stale": True}
-        if estado_db == "listo" and nuevo_estado == "en_cocina":
-            return {"ok": True, "advertencias": [], "stale": True}
-        if estado_db != estado_actual:
-            return {"ok": False, "error": f"Estado en DB es '{estado_db}', se esperaba '{estado_actual}'."}
         sb.table("pedidos_cabecera")\
             .update({"estado_comanda": nuevo_estado})\
             .eq("id_pedido", id_pedido)\
             .execute()
-        return {"ok": True, "advertencias": []}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    except Exception:
+        pass
+    return res_local
 
 
 def page_cocina() -> None:
