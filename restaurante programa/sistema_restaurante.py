@@ -2291,12 +2291,12 @@ def page_cocina() -> None:
             f"{cards_html}</div>",
             unsafe_allow_html=True,
         )
-        for pedido in pendientes:
+        for idx, pedido in enumerate(pendientes):
             st.markdown(_card_html(pedido), unsafe_allow_html=True)
             _pc1, _pc2 = st.columns(2)
             with _pc1:
                 if st.button(f"▶ Iniciar  #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
-                             key=f"kb_ini_{pedido['id_pedido']}", type="primary", use_container_width=True):
+                             key=f"kb_ini_pend_{idx}_{pedido['id_pedido']}", type="primary", use_container_width=True):
                     res = _avanzar_estado_supabase(pedido["id_pedido"], "pendiente")
                     if res["ok"]:
                         st.session_state.ultimo_despachado = {"id_pedido": pedido["id_pedido"],
@@ -2306,7 +2306,7 @@ def page_cocina() -> None:
                     else:
                         st.error(res["error"])
             with _pc2:
-                if st.button(f"✅ Listo #{pedido['id_pedido']}", key=f"kb_skip_{pedido['id_pedido']}",
+                if st.button(f"✅ Listo #{pedido['id_pedido']}", key=f"kb_skip_pend_{idx}_{pedido['id_pedido']}",
                              use_container_width=True):
                     res1 = _avanzar_estado_supabase(pedido["id_pedido"], "pendiente")
                     if res1["ok"]:
@@ -2331,10 +2331,10 @@ def page_cocina() -> None:
             f"{cards_html}</div>",
             unsafe_allow_html=True,
         )
-        for pedido in en_cocina:
+        for idx, pedido in enumerate(en_cocina):
             st.markdown(_card_html(pedido), unsafe_allow_html=True)
             if st.button(f"🚀 Listo  #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
-                         key=f"kb_list_{pedido['id_pedido']}", type="primary", use_container_width=True):
+                         key=f"kb_list_coci_{idx}_{pedido['id_pedido']}", type="primary", use_container_width=True):
                 res = _avanzar_estado_supabase(pedido["id_pedido"], "en_cocina")
                 if res["ok"]:
                     st.session_state.ultimo_despachado = {"id_pedido": pedido["id_pedido"],
@@ -2356,11 +2356,11 @@ def page_cocina() -> None:
             f"{cards_html}</div>",
             unsafe_allow_html=True,
         )
-        for pedido in listos:
+        for idx, pedido in enumerate(listos):
             st.markdown(_card_html(pedido, alertar_demora=False), unsafe_allow_html=True)
             if st.button(
                 f"Archivar #{pedido['id_pedido']} · Mesa {pedido['numero_mesa']}",
-                key=f"kb_archive_{pedido['id_pedido']}",
+                key=f"kb_archive_list_{idx}_{pedido['id_pedido']}",
                 use_container_width=True,
             ):
                 res = _archivar_pedido_listo_cocina(pedido["id_pedido"])
