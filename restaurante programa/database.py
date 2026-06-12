@@ -1413,6 +1413,9 @@ def confirmar_pedido_cocina(id_pedido: int) -> dict:
             conn.rollback()
             return {"ok": False, "error": f"Pedido {id_pedido} no existe."}
         estado = row["estado_comanda"] if hasattr(row, "__getitem__") else row[0]
+        if estado == "listo":
+            conn.rollback()
+            return {"ok": True, "advertencias": [], "stale": True}
         if estado != "en_cocina":
             conn.rollback()
             return {"ok": False, "error": f"Estado inv\u00e1lido: '{estado}'. Se esperaba 'en_cocina'."}
@@ -1499,6 +1502,8 @@ def avanzar_estado(id_pedido: int, estado_actual: str) -> dict:
         if row is None:
             return {"ok": False, "error": f"Pedido {id_pedido} no existe."}
         estado_db = row["estado_comanda"] if hasattr(row, "__getitem__") else row[0]
+        if estado_db == nuevo_estado:
+            return {"ok": True, "advertencias": [], "stale": True}
         if estado_db != estado_actual:
             return {"ok": False, "error": f"Estado en DB es '{estado_db}', se esperaba '{estado_actual}'."}
         conn.execute(

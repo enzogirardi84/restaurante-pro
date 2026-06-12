@@ -1917,6 +1917,10 @@ def _avanzar_estado_supabase(id_pedido: int, estado_actual: str) -> dict:
         if not res.data:
             return {"ok": False, "error": f"Pedido {id_pedido} no existe."}
         estado_db = res.data["estado_comanda"]
+        if estado_db == nuevo_estado:
+            return {"ok": True, "advertencias": [], "stale": True}
+        if estado_db == "listo" and nuevo_estado == "en_cocina":
+            return {"ok": True, "advertencias": [], "stale": True}
         if estado_db != estado_actual:
             return {"ok": False, "error": f"Estado en DB es '{estado_db}', se esperaba '{estado_actual}'."}
         sb.table("pedidos_cabecera")\
