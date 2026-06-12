@@ -1467,7 +1467,8 @@ def confirmar_pedido_cocina(id_pedido: int) -> dict:
             "SELECT nombre, stock_actual, stock_minimo FROM insumos WHERE stock_actual <= stock_minimo"
         )
         advertencias = [
-            f"\u26a0\ufe0f  Stock bajo: '{r['nombre']}' ({r['stock_actual']:.0f}/{r['stock_minimo']:.0f})"
+            f"\u26a0\ufe0f  Stock bajo: '{r['nombre']}' "
+            f"({float(r['stock_actual'] or 0):.0f}/{float(r['stock_minimo'] or 0):.0f})"
             for r in cur.fetchall()
         ]
         return {"ok": True, "advertencias": advertencias}

@@ -3706,7 +3706,10 @@ def _page_inventario_legacy_unused() -> None:
     bajos = [i for i in insumos if float(i["stock_actual"]) <= float(i["stock_minimo"])]
     if bajos:
         for item in bajos:
-            st.warning(f"Stock bajo: {item['nombre']} · {item['stock_actual']:.0f} / {item['stock_minimo']:.0f} {item['unidad_medida']}")
+            st.warning(
+                f"Stock bajo: {item['nombre']} · "
+                f"{float(item['stock_actual'] or 0):.0f} / {float(item['stock_minimo'] or 0):.0f} {item['unidad_medida']}"
+            )
     else:
         st.success("Sin alertas de stock.")
 
@@ -3854,7 +3857,10 @@ def page_inventario() -> None:
 
     if bajos:
         for item in bajos:
-            st.warning(f"Stock bajo: {item['nombre']} | {item['stock_actual']:.0f} / {item['stock_minimo']:.0f} {item['unidad_medida']}")
+            st.warning(
+                f"Stock bajo: {item['nombre']} | "
+                f"{float(item['stock_actual'] or 0):.0f} / {float(item['stock_minimo'] or 0):.0f} {item['unidad_medida']}"
+            )
 
     tab_stock, tab_mov, tab_prov, tab_hist = st.tabs(["Stock", "Movimientos", "Proveedores", "Historial"])
     with tab_stock:
