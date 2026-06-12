@@ -23,6 +23,7 @@ from database import (
 from cloud_config import app_name, cloud_status, database_url_warnings, default_service_percentage, masked_status_table
 from security import hash_password, is_password_hash, login_logo_path, login_logo_tag, verify_password
 from access_utils import recovery_system_access, validate_default_system_access
+from order_utils import normalize_order_cart
 from permission_utils import modules_for_role
 
 APP_TITLE = app_name("Restaurante Pro")
@@ -631,7 +632,7 @@ def mozo_operativo() -> dict:
 
 
 def crear_pedido(id_mesa: int, id_usuario: int, cart: dict[int, dict]) -> int:
-    items = [i for i in cart.values() if int(i["cantidad"]) > 0]
+    items = normalize_order_cart(cart)
     if not items:
         raise ValueError("El pedido esta vacio.")
     conn = get_connection()
@@ -659,7 +660,7 @@ def crear_pedido(id_mesa: int, id_usuario: int, cart: dict[int, dict]) -> int:
                 id_pedido,
                 producto["id_producto"],
                 int(item["cantidad"]),
-                item.get("observaciones", "").strip(),
+                item["observaciones"],
                 precio_facturado,
             ))
         conn.execute("UPDATE mesas SET estado = 'ocupada' WHERE id_mesa = ?", (id_mesa,))
@@ -774,10 +775,15 @@ def pedidos_cocina_detallados() -> list[dict]:
     armados = []
     for pedido in pedidos:
         pedido["items"] = por_pedido.get(int(pedido["id_pedido"]), [])
-        if pedido["items"]:
-            mins = elapsed_minutes(pedido["fecha_hora"])
-            pedido["prioridad"] = kds_priority_score(mins, pedido["estado_comanda"])
-            armados.append(pedido)
+        if not pedido["items"]:
+            pedido["items"] = [{
+                "nombre": "Pedido sin detalle cargado",
+                "cantidad": 1,
+                "observaciones": "Revisar sincronizacion",
+            }]
+        mins = elapsed_minutes(pedido["fecha_hora"])
+        pedido["prioridad"] = kds_priority_score(mins, pedido["estado_comanda"])
+        armados.append(pedido)
     armados.sort(key=lambda p: p["prioridad"], reverse=True)
     return armados
 

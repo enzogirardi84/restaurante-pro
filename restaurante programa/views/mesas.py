@@ -10,7 +10,7 @@ import streamlit as st
 from components.css import title
 from components.helpers import (
     anular_detalle, detalle_mesa_renglones, execute, get_mesas, money,
-    registrar_auditoria, rows,
+    liberar_mesa_sin_cobro, registrar_auditoria, rows,
 )
 
 
@@ -49,9 +49,11 @@ def _render_mesa_grid(mesas: list[dict]) -> None:
                         st.rerun()
                 else:
                     if st.button("Liberar", key=f"free_{mesa['id_mesa']}", type="primary", use_container_width=True):
-                        execute("UPDATE mesas SET estado='libre' WHERE id_mesa=?", (mesa["id_mesa"],))
-                        registrar_auditoria("mesas", "liberar", str(mesa["numero_mesa"]))
-                        st.rerun()
+                        res = liberar_mesa_sin_cobro(mesa["id_mesa"], f"Mesa {mesa['numero_mesa']} liberada desde modulo Mesas")
+                        if res["ok"]:
+                            registrar_auditoria("mesas", "liberar", str(mesa["numero_mesa"]))
+                            st.rerun()
+                        st.error(res["error"])
 
 
 def page_mesas() -> None:
@@ -116,7 +118,13 @@ def page_mesas() -> None:
             mesa_accion = st.selectbox("Accion sobre mesa", mesas, format_func=lambda m: f"Mesa {m['numero_mesa']}", key="mesa_accion")
             estado = st.selectbox("Nuevo estado", ["libre", "ocupada", "esperando_cuenta"])
             if st.button("Cambiar estado", use_container_width=True):
-                execute("UPDATE mesas SET estado=? WHERE id_mesa=?", (estado, mesa_accion["id_mesa"]))
+                if estado == "libre":
+                    res = liberar_mesa_sin_cobro(mesa_accion["id_mesa"], f"Mesa {mesa_accion['numero_mesa']} cambio manual a libre")
+                    if not res["ok"]:
+                        st.error(res["error"])
+                        return
+                else:
+                    execute("UPDATE mesas SET estado=? WHERE id_mesa=?", (estado, mesa_accion["id_mesa"]))
                 registrar_auditoria("mesas", "cambio_estado", f"{mesa_accion['numero_mesa']} {estado}")
                 st.rerun()
 

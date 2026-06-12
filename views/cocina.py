@@ -6,6 +6,10 @@ Auto-refresh cada 10s con @st.fragment.
 from __future__ import annotations
 
 from datetime import datetime
+import io
+import json
+import math
+import wave
 
 import streamlit as st
 from database import get_connection_direct
@@ -93,6 +97,40 @@ def _clase_demora(mins: int) -> str:
     return ""
 
 
+def _kds_beep_wav() -> bytes:
+    """Genera un beep WAV breve para alertar pedidos nuevos sin depender de assets."""
+    sample_rate = 8000
+    duration = 0.16
+    frequency = 880
+    frames = bytearray()
+    for index in range(int(sample_rate * duration)):
+        sample = int(18000 * math.sin(2 * math.pi * frequency * index / sample_rate))
+        frames.extend(sample.to_bytes(2, "little", signed=True))
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(bytes(frames))
+    return buffer.getvalue()
+
+
+def _notificar_estado_kds(total_pedidos: int) -> None:
+    titulo = f"({total_pedidos}) KDS Cocina" if total_pedidos else "KDS Cocina"
+    st.markdown(
+        f"<script>document.title = {json.dumps(titulo)};</script>",
+        unsafe_allow_html=True,
+    )
+
+    prev = st.session_state.get("kds_prev_total_pedidos")
+    st.session_state.kds_prev_total_pedidos = total_pedidos
+    if prev is not None and total_pedidos > int(prev):
+        nuevos = total_pedidos - int(prev)
+        st.toast(f"{nuevos} pedido(s) nuevo(s) en cocina")
+        st.audio(_kds_beep_wav(), format="audio/wav")
+
+
 @st.fragment(run_every=10)
 def renderizar_monitor_cocina_pasivo():
     conn = get_connection_direct()
@@ -134,6 +172,7 @@ def renderizar_monitor_cocina_pasivo():
 
     total_pedidos = len(pedidos)
     total_items = sum(len(p["items"]) for p in pedidos.values())
+    _notificar_estado_kds(total_pedidos)
 
     # Cabecera
     c_logo, c_metric = st.columns([1, 3])

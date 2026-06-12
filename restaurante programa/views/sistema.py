@@ -12,6 +12,15 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+try:
+    st.secrets.get("_probe_", "")
+except Exception:
+    class _EmptySecrets:
+        def get(self, _name: str, default=None):
+            return default
+
+    st.secrets = _EmptySecrets()
+
 from database import (
     DB_PATH, database_label, logs_operaciones_recientes,
     procesar_cola_sincronizacion, using_postgres, get_connection,

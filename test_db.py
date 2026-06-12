@@ -1,62 +1,66 @@
-"""Diagnóstico de conexión Supabase PostgreSQL."""
-import sys, os
+"""Diagnostico de conexion Supabase/PostgreSQL.
 
-# Configurar manualmente (esto NO sube a Streamlit Cloud)
-DB_USER = "postgres.jyisecrmuiebuvtgqjhy"
-DB_PASS = "Enzo37108100"
-DB_HOST = "aws-1-us-east-1.pooler.supabase.com"
+Usa DATABASE_URL o SUPABASE_DB_URL desde el entorno. No guarda credenciales
+en el repositorio ni imprime la URL completa.
+"""
+from __future__ import annotations
 
-print("=" * 60)
-print("DIAGNÓSTICO DE CONEXIÓN SUPABASE")
-print("=" * 60)
+import os
+import sys
+from urllib.parse import urlparse
 
-# 1. Verificar que psycopg2 está instalado
-try:
-    import psycopg2
-    print(f"[OK] psycopg2 versión: {psycopg2.__version__}")
-except ImportError:
-    print("[INSTALAR] pip install psycopg2-binary")
-    sys.exit(1)
 
-# 2. Probar conexión con puerto 5432
-for puerto, nombre in [(5432, "Directo"), (6543, "Pooler")]:
-    print(f"\n--- Probando conexión {nombre} (puerto {puerto}) ---")
+def _masked_dsn(dsn: str) -> str:
+    parsed = urlparse(dsn)
+    host = parsed.hostname or "sin-host"
+    port = parsed.port or 5432
+    user = parsed.username or "sin-usuario"
+    dbname = parsed.path.lstrip("/") or "postgres"
+    return f"{parsed.scheme}://{user}:***@{host}:{port}/{dbname}"
+
+
+def main() -> int:
+    dsn = (os.getenv("DATABASE_URL") or os.getenv("SUPABASE_DB_URL") or "").strip()
+    print("=" * 60)
+    print("DIAGNOSTICO DE CONEXION SUPABASE")
+    print("=" * 60)
+
+    if not dsn:
+        print("[SKIP] No hay DATABASE_URL ni SUPABASE_DB_URL configurada.")
+        print("       Define una de esas variables para probar la conexion real.")
+        return 0
+
     try:
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            port=puerto,
-            dbname="postgres",
-            user=DB_USER,
-            password=DB_PASS,
-            sslmode="require",
-            connect_timeout=10,
-        )
-        cur = conn.cursor()
-        cur.execute("SELECT version();")
-        version = cur.fetchone()[0]
-        cur.execute("SELECT current_database();")
-        dbname = cur.fetchone()[0]
-        print(f"  ✅ CONECTADO")
-        print(f"  Base: {dbname}")
-        print(f"  Versión: {version[:60]}...")
-        conn.close()
-    except Exception as e:
-        error = str(e).lower()
-        if "password" in error or "authentication" in error:
-            print(f"  ❌ Contraseña incorrecta")
-        elif "connection refused" in error or "timeout" in error:
-            print(f"  ❌ Puerto {puerto} no responde")
-        elif "ssl" in error:
-            print(f"  ❌ Error SSL")
-        else:
-            print(f"  ❌ {e}")
+        import psycopg2
+    except ImportError:
+        print("[ERROR] Falta psycopg2. Instala psycopg2-binary.")
+        return 1
 
-print("\n" + "=" * 60)
-print("SI CONECTA LOCALMENTE pero falla en Streamlit Cloud:")
-print("  → La DATABASE_URL en Secrets tiene la contraseña mal escrita")
-print("  → O la contraseña tiene caracteres no codificados (@ # % etc)")
-print()
-print("SI NO CONECTA LOCALMENTE:")
-print("  → La contraseña es incorrecta")
-print("  → O el proyecto Supabase está en pausa (check en supabase.com)")
-print("=" * 60)
+    print(f"[INFO] psycopg2 version: {psycopg2.__version__}")
+    print(f"[INFO] DSN: {_masked_dsn(dsn)}")
+
+    try:
+        conn = psycopg2.connect(dsn, connect_timeout=10)
+        cur = conn.cursor()
+        cur.execute("SELECT current_database(), version();")
+        dbname, version = cur.fetchone()
+        conn.close()
+        print("[OK] Conexion exitosa")
+        print(f"     Base: {dbname}")
+        print(f"     Version: {version[:80]}...")
+        return 0
+    except Exception as exc:
+        error = str(exc).lower()
+        if "password" in error or "authentication" in error:
+            print("[ERROR] Autenticacion fallida. Revisa usuario/password en Secrets.")
+        elif "connection refused" in error or "timeout" in error:
+            print("[ERROR] Timeout o puerto no disponible. Revisa host, puerto y pooler.")
+        elif "ssl" in error:
+            print("[ERROR] Error SSL. Agrega sslmode=require a la URL.")
+        else:
+            print(f"[ERROR] {exc}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

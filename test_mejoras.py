@@ -1,7 +1,13 @@
 """Quick verification that key improvements are in place."""
-import sys, os, urllib.request
+from pathlib import Path
+import os
+import sys
+import urllib.request
 
-sys.path.insert(0, r"C:\comandapro_erp")
+os.environ["DB_ENGINE"] = "sqlite"
+
+BASE_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE_DIR))
 from database import get_connection_direct
 from components.imagenes import obtener_imagen
 
@@ -36,36 +42,28 @@ check("Imagenes: fallback default_insumo", obtener_imagen("", "insumo").endswith
 
 # Verificar imagen real de seed data
 for ruta_base in ["assets/ejemplos/hamburguesa.svg", "assets/ejemplos/helado.svg"]:
-    ruta = os.path.join(r"C:\comandapro_erp", ruta_base)
-    check(f"Imagenes: existe {ruta_base}", os.path.exists(ruta))
+    ruta = BASE_DIR / ruta_base
+    check(f"Imagenes: existe {ruta_base}", ruta.exists())
 
 # 5. Notificaciones KDS (cocina.py)
-f = open(os.path.join(r"C:\comandapro_erp", "views", "cocina.py"), "r")
-content = f.read()
-f.close()
+content = (BASE_DIR / "views" / "cocina.py").read_text(encoding="utf-8")
 check("KDS: notificacion toast", "st.toast" in content)
 check("KDS: alerta sonora", "st.audio" in content)
 check("KDS: badge titulo", "document.title" in content)
 
 # 6. Cierre de caja en dashboard
-f = open(os.path.join(r"C:\comandapro_erp", "views", "dashboard.py"), "r")
-dash = f.read()
-f.close()
+dash = (BASE_DIR / "views" / "dashboard.py").read_text(encoding="utf-8")
 check("Dashboard: cierre de caja", "CERRAR CAJA" in dash or "cerrar_caja" in dash)
 
 # 7. API REST
-check("API REST: archivo existe", os.path.exists(os.path.join(r"C:\comandapro_erp", "api.py")))
+check("API REST: archivo existe", (BASE_DIR / "api.py").exists())
 
 # 8. DATABASE_URL support
-f = open(os.path.join(r"C:\comandapro_erp", "config.py"), "r")
-cfg = f.read()
-f.close()
+cfg = (BASE_DIR / "config.py").read_text(encoding="utf-8")
 check("Config: DATABASE_URL cloud", "DATABASE_URL" in cfg)
 
 # 9. SSL mode para Supabase
-f = open(os.path.join(r"C:\comandapro_erp", "database.py"), "r")
-db = f.read()
-f.close()
+db = (BASE_DIR / "database.py").read_text(encoding="utf-8")
 check("DB: SSL mode Supabase", "sslmode" in db or "ssl" in db)
 
 print()

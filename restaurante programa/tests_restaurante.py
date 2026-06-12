@@ -141,6 +141,100 @@ def test_money_formats_cloud_numeric_values():
     assert money("no-numero") == "$0"
 
 
+class _FakeSupabaseResponse:
+    def __init__(self, data):
+        self.data = data
+
+
+class _FakeSupabaseTable:
+    def __init__(self, client, name):
+        self.client = client
+        self.name = name
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def in_(self, column, values):
+        self.client.calls.append((self.name, "in", column, tuple(values)))
+        return self
+
+    def gte(self, column, value):
+        self.client.calls.append((self.name, "gte", column, value))
+        return self
+
+    def order(self, *_args, **_kwargs):
+        return self
+
+    def execute(self):
+        return _FakeSupabaseResponse(self.client.data.get(self.name, []))
+
+
+class _FakeSupabase:
+    def __init__(self):
+        self.calls = []
+        self.data = {
+            "pedidos_cabecera": [
+                {
+                    "id_pedido": 101,
+                    "fecha_hora": "2026-06-11 10:00:00",
+                    "estado_comanda": "pendiente",
+                    "id_mesa": 1,
+                    "id_usuario": 1,
+                },
+                {
+                    "id_pedido": 102,
+                    "fecha_hora": "2026-06-11 10:05:00",
+                    "estado_comanda": "pendiente",
+                    "id_mesa": 2,
+                    "id_usuario": 1,
+                },
+            ],
+            "mesas": [
+                {"id_mesa": 1, "numero_mesa": 1},
+                {"id_mesa": 2, "numero_mesa": 2},
+            ],
+            "usuarios": [{"id_usuario": 1, "nombre": "Carlos", "apellido": "Garcia"}],
+            "pedido_detalle": [
+                {
+                    "id_pedido": 101,
+                    "id_producto": 7,
+                    "cantidad": 3,
+                    "cantidad_anulada": 1,
+                    "observaciones": "sin sal",
+                }
+            ],
+            "productos_menu": [{"id_producto": 7, "nombre": "Milanesa", "categoria": "cocina"}],
+        }
+
+    def table(self, name):
+        return _FakeSupabaseTable(self, name)
+
+
+def test_supabase_kitchen_orders_are_visible_and_filtered(monkeypatch):
+    import sistema_restaurante as sr
+
+    fake = _FakeSupabase()
+    monkeypatch.setattr(sr, "_get_supabase", lambda: fake)
+    monkeypatch.setattr(sr, "active_order_cutoff", lambda: "2026-06-11 00:00:00")
+
+    pedidos = sr._pedidos_desde_supabase(("pendiente", "en_cocina", "listo"))
+
+    assert len(pedidos) == 2
+    assert pedidos[0]["items"][0]["nombre"] == "Milanesa"
+    assert pedidos[0]["items"][0]["cantidad"] == 2
+    assert pedidos[1]["items"][0]["nombre"] == "Pedido sin detalle cargado"
+    assert ("pedidos_cabecera", "gte", "fecha_hora", "2026-06-11 00:00:00") in fake.calls
+
+
+def test_order_sync_skips_rest_when_postgres_is_active(monkeypatch):
+    import sistema_restaurante as sr
+
+    monkeypatch.setattr(sr, "using_postgres", lambda: True)
+    monkeypatch.setattr(sr, "_get_supabase", lambda: (_ for _ in ()).throw(AssertionError("no REST sync")))
+
+    sr._sync_pedido_a_supabase(1, 1, 1, [{"id_producto": 1, "cantidad": 1}])
+
+
 def test_role_permissions_are_restricted_and_terminal_locked():
     assert modules_for_role("mozo") == ["Mozo"]
     assert modules_for_role("cocina") == ["Cocina"]
