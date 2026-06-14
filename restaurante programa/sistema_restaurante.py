@@ -1704,9 +1704,10 @@ def cobrar_mesa(id_mesa: int, total: float, medio_pago: str) -> dict:
             """, (medio_pago, float(pedido["subtotal"]) * (1 + service_percentage() / 100), pedido["id_pedido"]))
 
         conn.execute("UPDATE mesas SET estado = 'libre' WHERE id_mesa = ?", (id_mesa,))
-        registrar_movimiento_caja(conn, total, f"Mesa {id_mesa} - {medio_pago}", "ingreso_venta")
+        total_cobrado = subtotal + servicio
+        registrar_movimiento_caja(conn, total_cobrado, f"Mesa {id_mesa} - {medio_pago}", "ingreso_venta")
         conn.execute("COMMIT")
-        return {"ok": True, "pedidos": len(activos)}
+        return {"ok": True, "pedidos": len(activos), "id_pago": id_pago, "total": total_cobrado}
     except Exception as exc:
         conn.execute("ROLLBACK")
         return {"ok": False, "error": str(exc)}
@@ -1753,7 +1754,7 @@ def cobrar_parcial(id_mesa: int, cantidades: dict[int, int], medio_pago: str) ->
         registrar_movimiento_caja(conn, total, f"Pago parcial mesa {id_mesa} - {medio_pago}", "ingreso_venta")
         actualizar_pedidos_cobrados(conn, id_mesa)
         conn.execute("COMMIT")
-        return {"ok": True, "total": total}
+        return {"ok": True, "total": total, "id_pago": id_pago}
     except Exception as exc:
         conn.execute("ROLLBACK")
         return {"ok": False, "error": str(exc)}
@@ -1918,6 +1919,94 @@ def mostrar_descarga_ticket_pago(id_pago: int, key_prefix: str) -> None:
         data["ticket"],
         key_prefix,
     )
+
+
+def resumen_movimientos_caja(id_caja: int) -> dict:
+    mov = one("""
+        SELECT
+            COALESCE(SUM(CASE WHEN tipo_movimiento = 'ingreso_venta' THEN monto ELSE 0 END), 0) AS ingresos,
+            COALESCE(SUM(CASE WHEN tipo_movimiento != 'ingreso_venta' THEN monto ELSE 0 END), 0) AS egresos,
+            COUNT(*) AS operaciones
+        FROM movimientos_caja
+        WHERE id_caja = ?
+    """, (id_caja,)) or {"ingresos": 0, "egresos": 0, "operaciones": 0}
+    return {
+        "ingresos": float(mov.get("ingresos") or 0),
+        "egresos": float(mov.get("egresos") or 0),
+        "operaciones": int(mov.get("operaciones") or 0),
+    }
+
+
+def render_ticket_pdf_pago(id_pago: int, key_prefix: str, label: str = "Descargar PDF") -> None:
+    data = ticket_desde_pago(id_pago)
+    if not data:
+        st.caption("Ticket no disponible.")
+        return
+    pdf_bytes = generar_ticket_pdf(
+        data["mesa"],
+        data["detalle"],
+        data["medio_pago"],
+        data["subtotal"],
+        data["servicio"],
+        data["total"],
+    )
+    st.download_button(
+        label,
+        pdf_bytes,
+        file_name=ticket_filename(data["mesa"], "pdf"),
+        mime="application/pdf",
+        key=f"{key_prefix}_pdf",
+        use_container_width=True,
+    )
+
+
+def render_historial_tickets_caja(limit: int = 8) -> None:
+    ventas = historial_ventas(limit)
+    st.markdown("#### Tickets emitidos")
+    if not ventas:
+        st.info("Todavia no hay tickets emitidos en caja.")
+        return
+    for venta in ventas:
+        id_pago = int(venta["id_pago"])
+        fecha = escape(str(venta.get("fecha_hora") or "")[0:16])
+        tipo = escape(str(venta.get("tipo") or "total").title())
+        medio = escape(str(venta.get("medio_pago") or ""))
+        col_info, col_total, col_pdf = st.columns([2.4, 1, 1.1])
+        with col_info:
+            st.markdown(
+                f"<div class='history-row'><span><b>Ticket #{id_pago}</b> | Mesa {venta['numero_mesa']}<br>"
+                f"<span class='muted'>{fecha} | {medio} | {tipo}</span></span></div>",
+                unsafe_allow_html=True,
+            )
+        col_total.metric("Total", money(venta["total"]))
+        with col_pdf:
+            render_ticket_pdf_pago(id_pago, f"caja_hist_pdf_{id_pago}")
+
+
+def render_caja_sin_pendientes(caja: dict, total_mesas: int) -> None:
+    col_estado, col_tickets = st.columns([1, 1.35], gap="medium")
+    with col_estado:
+        st.markdown(
+            f"""
+            <div class="card" style="min-height: 240px;">
+                <div class="muted">COMANDAS EN SALON</div>
+                <h3 style="margin: 10px 0;">Todo liquidado</h3>
+                <p>No hay mesas con consumos pendientes. Los comprobantes ya emitidos quedan disponibles para descargar en PDF desde el historial.</p>
+                <div class="history-row"><span>Mesas configuradas</span><b>{total_mesas}</b></div>
+                <div class="history-row"><span>Caja abierta</span><b>#{caja['id_caja']}</b></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        corte_txt, _, _ = generar_corte_caja(caja)
+        st.download_button(
+            "Descargar corte de caja.txt",
+            corte_txt,
+            file_name=f"corte_caja_{caja['id_caja']}.txt",
+            use_container_width=True,
+        )
+    with col_tickets:
+        render_historial_tickets_caja(10)
 
 
 def anulaciones_recientes(limit: int = 10) -> list[dict]:
@@ -2559,11 +2648,14 @@ def page_caja() -> None:
     render_ultimo_ticket_caja()
     caja = caja_abierta()
     if caja:
-        c1, c2, c3, c4 = st.columns(4)
+        mov_turno = resumen_movimientos_caja(caja["id_caja"])
+        esperado_turno = cash_expected(caja["monto_apertura"], mov_turno["ingresos"], mov_turno["egresos"])
+        c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("Caja", f"#{caja['id_caja']}")
         c2.metric("Cajero", caja["cajero"])
         c3.metric("Apertura", money(caja["monto_apertura"]))
-        c4.metric("Ventas", money(caja.get("monto_ventas", 0)))
+        c4.metric("Ventas turno", money(mov_turno["ingresos"]))
+        c5.metric("Caja esperada", money(esperado_turno))
     else:
         st.warning("No hay caja abierta. Abrila antes de cobrar.")
         monto = st.number_input("Monto de apertura", min_value=0.0, step=100.0)
@@ -2597,17 +2689,7 @@ def page_caja() -> None:
                     conn.close()
         with col_cierre:
             real = st.number_input("Monto contado real", min_value=0.0, step=100.0)
-            mov = {"ingresos": 0, "egresos": 0}
-            try:
-                mov = (one("""
-                    SELECT
-                        COALESCE(SUM(CASE WHEN tipo_movimiento = 'ingreso_venta' THEN monto ELSE 0 END), 0) AS ingresos,
-                        COALESCE(SUM(CASE WHEN tipo_movimiento != 'ingreso_venta' THEN monto ELSE 0 END), 0) AS egresos
-                    FROM movimientos_caja
-                    WHERE id_caja = ?
-                """, (caja["id_caja"],)) or {"ingresos": 0, "egresos": 0})
-            except Exception:
-                pass
+            mov = resumen_movimientos_caja(caja["id_caja"])
             ingresos = float(mov["ingresos"] or 0)
             egresos = float(mov["egresos"] or 0)
             esperado = cash_expected(caja["monto_apertura"], ingresos, egresos)
@@ -2650,9 +2732,10 @@ def page_caja() -> None:
                     f"<div class='history-row'><span>Mesa {venta['numero_mesa']}<br><span class='muted'>{escape(venta['medio_pago'])}</span></span><b>{money(venta['total'])}</b></div>",
                     unsafe_allow_html=True,
                 )
-                mostrar_descarga_ticket_pago(
+                render_ticket_pdf_pago(
                     int(venta["id_pago"]),
                     f"historial_ticket_{venta['id_pago']}",
+                    "PDF",
                 )
             corte_txt, movimientos_corte, medios_corte = generar_corte_caja(caja)
             st.download_button(
@@ -2680,7 +2763,8 @@ def page_caja() -> None:
 
     mesas = mesas_para_caja()
     if not mesas:
-        st.info("No hay mesas cargadas.")
+        st.warning("No hay mesas configuradas para cobrar.")
+        render_historial_tickets_caja(10)
         return
     vistos: set[int] = set()
     mesas_dedup: list[dict] = []
@@ -2690,10 +2774,13 @@ def page_caja() -> None:
             vistos.add(mid)
             mesas_dedup.append(m)
     mesas = mesas_dedup
-    ids_mesas = [int(m["id_mesa"]) for m in mesas]
     mesas_con_cuenta = [m for m in mesas if float(m["total"]) > 0]
+    if not mesas_con_cuenta:
+        render_caja_sin_pendientes(caja, len(mesas))
+        return
+    ids_mesas = [int(m["id_mesa"]) for m in mesas_con_cuenta]
     if st.session_state.mesa_caja_id not in ids_mesas:
-        st.session_state.mesa_caja_id = int((mesas_con_cuenta[0] if mesas_con_cuenta else mesas[0])["id_mesa"])
+        st.session_state.mesa_caja_id = int(mesas_con_cuenta[0]["id_mesa"])
 
     left, center, right = st.columns([0.9, 1.35, 1.05], gap="medium")
     with left:
@@ -2711,11 +2798,16 @@ def page_caja() -> None:
                 """,
                 unsafe_allow_html=True,
             )
-            if st.button("Seleccionar", key=f"caja_sel_mesa_{mesa_item['id_mesa']}", use_container_width=True):
+            if st.button(
+                "Seleccionar",
+                key=f"caja_sel_mesa_{mesa_item['id_mesa']}",
+                use_container_width=True,
+                disabled=float(mesa_item["total"]) <= 0,
+            ):
                 st.session_state.mesa_caja_id = int(mesa_item["id_mesa"])
                 st.rerun()
 
-    mesa = next(m for m in mesas if int(m["id_mesa"]) == int(st.session_state.mesa_caja_id))
+    mesa = next(m for m in mesas_con_cuenta if int(m["id_mesa"]) == int(st.session_state.mesa_caja_id))
     detalle = detalle_mesa(mesa["id_mesa"])
     subtotal = sum(float(i["importe"]) for i in detalle)
     servicio = service_amount(subtotal)
@@ -2759,6 +2851,10 @@ def page_caja() -> None:
                 res = cobrar_parcial(mesa["id_mesa"], cantidades, medio)
                 if res["ok"]:
                     registrar_auditoria("caja", "cobro_parcial", f"Mesa {mesa['numero_mesa']} {money(res['total'])}")
+                    if res.get("id_pago"):
+                        ticket_pagado = ticket_desde_pago(int(res["id_pago"]))
+                        if ticket_pagado:
+                            st.session_state.ultimo_ticket_caja = ticket_pagado
                     st.success("Cobro parcial registrado.")
                     st.rerun()
                 st.error(res["error"])
@@ -2900,7 +2996,8 @@ def page_caja() -> None:
             res = cobrar_mesa(mesa["id_mesa"], total, medio)
             if res["ok"]:
                 registrar_auditoria("caja", "mesa_cobrada", f"Mesa {mesa['numero_mesa']} {money(total)}")
-                st.session_state.ultimo_ticket_caja = {
+                ticket_pagado = ticket_desde_pago(int(res["id_pago"])) if res.get("id_pago") else None
+                st.session_state.ultimo_ticket_caja = ticket_pagado or {
                     "mesa": dict(mesa),
                     "detalle": [dict(item) for item in detalle],
                     "medio_pago": medio,
