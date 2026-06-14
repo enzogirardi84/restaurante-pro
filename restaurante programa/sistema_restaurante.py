@@ -631,6 +631,7 @@ def init_session() -> None:
         "mesa_caja_id": None,
         "medio_pago_caja": "Efectivo",
         "efectivo_recibido": 0.0,
+        "ultimo_ticket_caja": None,
         "force_password_change": False,
         "sidebar_collapsed": mobile == "1",
     }
@@ -1478,6 +1479,83 @@ def generar_ticket(mesa: dict, detalle: list[dict], medio_pago: str, subtotal: f
         cfg["ticket_footer"],
     ]
     return "\n".join(lineas)
+
+
+def generar_ticket_pdf(mesa: dict, detalle: list[dict], medio_pago: str, subtotal: float, servicio: float, total: float) -> bytes:
+    cfg = restaurant_config()
+    mesa_num = mesa.get("numero_mesa", "?")
+    usuario = st.session_state.get("usuario") or {}
+    usuario_nombre = f"{usuario.get('nombre', '')} {usuario.get('apellido', '')}".strip() or "caja"
+    rows_data = [
+        [
+            str(int(item.get("cantidad") or 0)),
+            str(item.get("nombre") or ""),
+            pdf_money(float(item.get("importe") or 0)),
+        ]
+        for item in detalle
+    ] or [["0", "Sin consumos", pdf_money(0)]]
+    detalle_table = data_table(
+        ["Cant.", "Producto", "Importe"],
+        rows_data,
+        col_widths=[60, 320, 115],
+        right_align_cols={0, 2},
+    )
+    totales_table = data_table(
+        ["Concepto", "Importe"],
+        [
+            ["Subtotal", pdf_money(subtotal)],
+            [f"Servicio {service_percentage():.0f}%", pdf_money(servicio)],
+            ["TOTAL", pdf_money(total)],
+            ["Medio de pago", medio_pago],
+        ],
+        col_widths=[300, 195],
+        right_align_cols={1},
+    )
+    return generate_pdf(
+        title=f"Ticket Mesa {mesa_num}",
+        subtitle=f"{cfg['nombre']} | {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+        kpis=[
+            ("Mesa", str(mesa_num)),
+            ("Total", pdf_money(total)),
+            ("Medio", medio_pago),
+            ("Cajero", usuario_nombre),
+        ],
+        sections=[
+            ("Detalle de consumo", detalle_table),
+            ("Totales", totales_table),
+        ],
+        usuario=usuario_nombre,
+        auditoria=False,
+    )
+
+
+def ticket_filename(mesa: dict, suffix: str) -> str:
+    mesa_num = str(mesa.get("numero_mesa", "mesa")).replace(" ", "_")
+    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    return f"ticket_mesa_{mesa_num}_{stamp}.{suffix}"
+
+
+def mostrar_descargas_ticket(mesa: dict, detalle: list[dict], medio_pago: str, subtotal: float, servicio: float, total: float, ticket: str, key_prefix: str) -> None:
+    pdf_bytes = generar_ticket_pdf(mesa, detalle, medio_pago, subtotal, servicio, total)
+    col_pdf, col_txt = st.columns(2)
+    with col_pdf:
+        st.download_button(
+            "📄 Descargar ticket PDF",
+            pdf_bytes,
+            file_name=ticket_filename(mesa, "pdf"),
+            mime="application/pdf",
+            use_container_width=True,
+            key=f"{key_prefix}_pdf",
+        )
+    with col_txt:
+        st.download_button(
+            "⬇ Descargar ticket TXT",
+            ticket,
+            file_name=ticket_filename(mesa, "txt"),
+            mime="text/plain",
+            use_container_width=True,
+            key=f"{key_prefix}_txt",
+        )
 
 
 def caja_abierta() -> dict | None:
@@ -2394,6 +2472,27 @@ def page_caja() -> None:
             st.rerun()
         return
 
+    ultimo_ticket = st.session_state.get("ultimo_ticket_caja")
+    if ultimo_ticket:
+        with st.expander("Último ticket cobrado - descargar PDF", expanded=True):
+            st.success(
+                f"Mesa {ultimo_ticket['mesa'].get('numero_mesa', '?')} cobrada por "
+                f"{money(ultimo_ticket['total'])}. El comprobante queda disponible para descarga."
+            )
+            mostrar_descargas_ticket(
+                ultimo_ticket["mesa"],
+                ultimo_ticket["detalle"],
+                ultimo_ticket["medio_pago"],
+                ultimo_ticket["subtotal"],
+                ultimo_ticket["servicio"],
+                ultimo_ticket["total"],
+                ultimo_ticket["ticket"],
+                "ultimo_ticket_caja",
+            )
+            if st.button("Ocultar último ticket", use_container_width=True):
+                st.session_state.ultimo_ticket_caja = None
+                st.rerun()
+
     with st.expander("Movimientos y cierre"):
         col_mov, col_cierre, col_hist = st.columns([1, 1, 1])
         with col_mov:
@@ -2634,7 +2733,16 @@ def page_caja() -> None:
             f'<a href="data:text/html;charset=utf-8,{quote(print_html)}" target="_blank">Abrir ticket para imprimir</a>',
             unsafe_allow_html=True,
         )
-        st.download_button("Reimprimir / descargar ticket", ticket, file_name=f"ticket_mesa_{mesa['numero_mesa']}.txt", use_container_width=True)
+        mostrar_descargas_ticket(
+            mesa,
+            detalle,
+            medio,
+            subtotal,
+            servicio,
+            total,
+            ticket,
+            f"ticket_actual_{mesa['id_mesa']}",
+        )
         corte_txt, _, _ = generar_corte_caja(caja)
         corte_html = f"<html><body><pre>{escape(corte_txt)}</pre><script>window.print()</script></body></html>"
         st.markdown(
@@ -2691,6 +2799,15 @@ def page_caja() -> None:
             res = cobrar_mesa(mesa["id_mesa"], total, medio)
             if res["ok"]:
                 registrar_auditoria("caja", "mesa_cobrada", f"Mesa {mesa['numero_mesa']} {money(total)}")
+                st.session_state.ultimo_ticket_caja = {
+                    "mesa": dict(mesa),
+                    "detalle": [dict(item) for item in detalle],
+                    "medio_pago": medio,
+                    "subtotal": subtotal,
+                    "servicio": servicio,
+                    "total": total,
+                    "ticket": ticket,
+                }
                 st.session_state.efectivo_recibido = 0.0
                 st.success("Mesa cobrada y liberada.")
                 st.rerun()
