@@ -133,12 +133,24 @@ def listar_facturas(
     hasta: str = "",
     busqueda: str = "",
     solo_activas: bool = False,
+    tipo: str = "Todos",
+    estado: str = "Todos",
+    medio: str = "Todos",
     limite: int = 200,
 ) -> pd.DataFrame:
     filtros = []
     params: list = []
     if solo_activas:
         filtros.append("fe.estado != 'anulado'")
+    if tipo and tipo != "Todos":
+        filtros.append("fe.tipo_comprobante = ?")
+        params.append(tipo)
+    if estado and estado != "Todos":
+        filtros.append("fe.estado = ?")
+        params.append(estado)
+    if medio and medio != "Todos":
+        filtros.append("fe.medio_pago = ?")
+        params.append(medio)
     if desde:
         filtros.append("fe.fecha_emision >= ?")
         params.append(desde)
@@ -167,7 +179,9 @@ def listar_facturas(
                    fe.iva,
                    fe.total,
                    fe.medio_pago,
-                   fe.estado
+                   fe.estado,
+                   fe.tipo_comprobante,
+                   fe.id_pago
             FROM facturas_electronicas fe
             {where}
             ORDER BY fe.fecha_emision DESC, fe.id_factura DESC
@@ -181,6 +195,38 @@ def listar_facturas(
 
 def obtener_factura(id_factura: int) -> dict | None:
     return one("SELECT * FROM facturas_electronicas WHERE id_factura = ?", (id_factura,))
+
+
+def pagos_sin_factura_resumen() -> dict:
+    row = one(
+        """
+        SELECT COUNT(*) AS cantidad,
+               COALESCE(SUM(pm.total), 0) AS total
+        FROM pagos_mesa pm
+        WHERE pm.id_pago NOT IN (
+            SELECT id_pago FROM facturas_electronicas WHERE id_pago IS NOT NULL
+        )
+        """
+    ) or {"cantidad": 0, "total": 0}
+    return {"cantidad": int(row["cantidad"] or 0), "total": float(row["total"] or 0)}
+
+
+def medios_facturados() -> list[str]:
+    return [
+        str(r["medio_pago"])
+        for r in rows(
+            """
+            SELECT DISTINCT medio_pago
+            FROM facturas_electronicas
+            WHERE TRIM(COALESCE(medio_pago, '')) != ''
+            ORDER BY medio_pago
+            """
+        )
+    ]
+
+
+def comprobante_estado_label(estado: str) -> str:
+    return "VALIDO" if str(estado or "").lower() != "anulado" else "ANULADO"
 
 
 def _nombre_comprobante(f: dict) -> str:
@@ -337,6 +383,81 @@ def _render_descarga_pdf_factura(
     )
 
 
+def _pdf_libro_iva(df: pd.DataFrame, desde: date, hasta: date) -> bytes:
+    buf = BytesIO()
+    w, h = A4
+    c = canvas.Canvas(buf, pagesize=A4)
+    c.setTitle(f"Libro IVA ventas {desde} {hasta}")
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(45, h - 45, "Libro IVA Ventas")
+    c.setFont("Helvetica", 9)
+    c.drawString(45, h - 62, f"Periodo: {desde} a {hasta}")
+    c.drawRightString(w - 45, h - 62, "El Patron - Restaurante Pro")
+
+    activos = df[df["estado"] != "anulado"] if not df.empty else df
+    neto = float(activos["subtotal"].sum()) if not activos.empty else 0
+    iva = float(activos["iva"].sum()) if not activos.empty else 0
+    total = float(activos["total"].sum()) if not activos.empty else 0
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(45, h - 92, f"Neto: {_fmt_pdf_money(neto)}")
+    c.drawString(190, h - 92, f"IVA: {_fmt_pdf_money(iva)}")
+    c.drawString(320, h - 92, f"Total: {_fmt_pdf_money(total)}")
+
+    y = h - 125
+    c.setFont("Helvetica-Bold", 8)
+    headers = [("Fecha", 45), ("Comprobante", 95), ("Cliente", 205), ("Neto", 350), ("IVA", 425), ("Total", 500)]
+    for label, x in headers:
+        if label in ("Neto", "IVA", "Total"):
+            c.drawRightString(x + 45, y, label)
+        else:
+            c.drawString(x, y, label)
+    c.line(45, y - 5, w - 45, y - 5)
+    y -= 20
+    c.setFont("Helvetica", 7)
+
+    for _, row in df.iterrows():
+        if y < 55:
+            c.showPage()
+            y = h - 55
+            c.setFont("Helvetica", 7)
+        c.drawString(45, y, str(row.get("fecha_emision") or "")[:10])
+        c.drawString(95, y, str(row.get("comprobante") or "")[:24])
+        c.drawString(205, y, str(row.get("razon_social_cliente") or "")[:27])
+        c.drawRightString(395, y, _fmt_pdf_money(row.get("subtotal")))
+        c.drawRightString(470, y, _fmt_pdf_money(row.get("iva")))
+        c.drawRightString(545, y, _fmt_pdf_money(row.get("total")))
+        if str(row.get("estado") or "").lower() == "anulado":
+            c.drawString(552, y, "ANUL.")
+        y -= 14
+
+    c.setFont("Helvetica", 7)
+    c.setFillColorRGB(0.45, 0.45, 0.45)
+    c.drawCentredString(w / 2, 28, f"Generado {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    c.save()
+    return buf.getvalue()
+
+
+def _render_dashboard_fiscal() -> None:
+    desde_mes = date.today().replace(day=1).isoformat()
+    hasta_hoy = date.today().isoformat()
+    df_mes = listar_facturas(desde_mes, hasta_hoy, solo_activas=True, limite=1000)
+    pendientes = pagos_sin_factura_resumen()
+    total = float(df_mes["total"].sum()) if not df_mes.empty else 0
+    neto = float(df_mes["subtotal"].sum()) if not df_mes.empty else 0
+    iva = float(df_mes["iva"].sum()) if not df_mes.empty else 0
+    comprobantes = int(len(df_mes))
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Neto mes", fmt_money(neto))
+    c2.metric("IVA debito", fmt_money(iva))
+    c3.metric("Total mes", fmt_money(total))
+    c4.metric("Pagos sin comprobante", pendientes["cantidad"], fmt_money(pendientes["total"]))
+
+    seq = " | ".join(f"{tipo}: {ultimo_numero_factura(1, tipo):08d}" for tipo in ("A", "B", "X", "ticket"))
+    st.caption(f"Numeracion fiscal PV 0001 - {seq} - Comprobantes activos mes: {comprobantes}")
+
+
 def _render_ultima_factura() -> None:
     id_factura = st.session_state.get("ultima_factura_emitida")
     if not id_factura:
@@ -354,10 +475,11 @@ def _render_ultima_factura() -> None:
 
 def page_facturacion_electronica():
     st.markdown("## Archivo Tributario de Facturas")
-    st.caption("Emision, auditoria, descarga de comprobantes PDF y control de IVA.")
+    st.caption("Emision, auditoria, descarga de comprobantes PDF, libro IVA y control de pagos pendientes.")
+    _render_dashboard_fiscal()
     _render_ultima_factura()
     tab_nueva, tab_desde_pago, tab_lista = st.tabs(
-        ["Nuevo comprobante", "Desde pago / ticket", "Comprobantes emitidos"]
+        ["Emitir manual", "Facturar pagos", "Archivo fiscal"]
     )
 
     with tab_nueva:
@@ -369,6 +491,8 @@ def page_facturacion_electronica():
 
 
 def _render_nueva_factura():
+    st.markdown("### Emitir comprobante manual")
+    st.caption("Usalo para ventas externas, ajustes comerciales o comprobantes no asociados a una mesa.")
     with st.form("form_factura"):
         col_a, col_b = st.columns(2)
         with col_a:
@@ -394,9 +518,15 @@ def _render_nueva_factura():
             st.caption(f"IVA: {fmt_money(iva)}")
 
         observaciones = st.text_area("Observaciones", placeholder="Nro pedido, forma de pago detallada...")
+        st.info(
+            f"Vista previa: {tipo} PV 0001-{ultimo_numero_factura(1, tipo) + 1:08d} | "
+            f"{razon_social or 'Consumidor Final'} | Total {fmt_money(total_manual)}"
+        )
         if st.form_submit_button("Emitir comprobante", type="primary", use_container_width=True):
             if total_manual <= 0:
                 st.error("El total debe ser mayor a 0.")
+            elif tipo == "A" and (not cuit.strip() or razon_social.strip().lower() == "consumidor final"):
+                st.error("Para factura A carga CUIT y razon social del cliente.")
             else:
                 r = registrar_factura(
                     None,
@@ -420,11 +550,17 @@ def _render_nueva_factura():
 
 
 def _render_factura_desde_pago():
-    st.markdown("**Generar comprobante o ticket desde un pago existente**")
+    st.markdown("### Facturar pagos de caja")
+    st.caption("Convierte cobros ya registrados en ticket, factura A/B o comprobante X con PDF descargable.")
     pagos = pagos_sin_factura()
     if not pagos:
         st.info("Todos los pagos ya tienen comprobante asociado.")
         return
+
+    total_pendiente = sum(float(p.get("total") or 0) for p in pagos)
+    c0, c1 = st.columns(2)
+    c0.metric("Pagos pendientes", len(pagos))
+    c1.metric("Importe pendiente", fmt_money(total_pendiente))
 
     opts = {
         f"#{p['id_pago']} Mesa {p['numero_mesa']} {p['medio_pago']} {fmt_money(p['total'])} ({str(p['fecha_hora'])[:16]})": p
@@ -440,6 +576,18 @@ def _render_factura_desde_pago():
         c2.metric("Medio", pago["medio_pago"])
         c3.metric("Neto", fmt_money(subtotal_calc))
         c4.metric("Total", fmt_money(pago["total"]))
+        items = _items_factura(int(pago["id_pago"]))
+        if items:
+            st.dataframe(
+                pd.DataFrame(items).rename(columns={
+                    "nombre": "Producto",
+                    "cantidad": "Cantidad",
+                    "precio": "Precio",
+                    "importe": "Importe",
+                }),
+                hide_index=True,
+                use_container_width=True,
+            )
 
     with st.form("form_factura_desde_pago"):
         tipo = st.selectbox("Tipo comprobante", ["ticket", "B", "A", "X"])
@@ -453,48 +601,87 @@ def _render_factura_desde_pago():
         subtotal, iva = _calcular_neto_iva(float(pago["total"] or 0), aplica_iva)
         st.caption(f"Neto {fmt_money(subtotal)} | IVA {fmt_money(iva)} | Total {fmt_money(pago['total'])}")
         if st.form_submit_button("Emitir y habilitar descarga PDF", type="primary", use_container_width=True):
-            r = registrar_factura(
-                pago["id_pago"],
-                tipo,
-                cuit,
-                razon_social,
-                "",
-                condicion_iva,
-                subtotal,
-                iva,
-                float(pago["total"]),
-                pago["medio_pago"],
-                f"Pago #{pago['id_pago']} Mesa {pago['numero_mesa']}",
-            )
-            if r["ok"]:
-                st.session_state.ultima_factura_emitida = r.get("id_factura")
-                st.success(f"Comprobante {r['tipo']} {r['pv']}-{r['numero']:08d} emitido.")
-                st.rerun()
+            if tipo == "A" and (not cuit.strip() or razon_social.strip().lower() == "consumidor final"):
+                st.error("Para factura A carga CUIT y razon social del cliente.")
             else:
-                st.error(r["error"])
+                r = registrar_factura(
+                    pago["id_pago"],
+                    tipo,
+                    cuit,
+                    razon_social,
+                    "",
+                    condicion_iva,
+                    subtotal,
+                    iva,
+                    float(pago["total"]),
+                    pago["medio_pago"],
+                    f"Pago #{pago['id_pago']} Mesa {pago['numero_mesa']}",
+                )
+                if r["ok"]:
+                    st.session_state.ultima_factura_emitida = r.get("id_factura")
+                    st.success(f"Comprobante {r['tipo']} {r['pv']}-{r['numero']:08d} emitido.")
+                    st.rerun()
+                else:
+                    st.error(r["error"])
 
 
 def _render_listado():
-    col_a, col_b, col_c, col_d = st.columns([1, 1, 2, 1])
+    st.markdown("### Archivo fiscal y auditoria")
+    col_a, col_b, col_c, col_d = st.columns([1, 1, 1.7, 1])
     desde = col_a.date_input("Desde", value=date.today().replace(day=1), key="fe_desde")
     hasta = col_b.date_input("Hasta", value=date.today(), key="fe_hasta")
     busqueda = col_c.text_input("Buscar cliente, CUIT, ticket o medio", placeholder="Consumidor, 30-, 8321...")
-    solo_activas = col_d.checkbox("Solo validos", value=False)
+    limite = int(col_d.number_input("Limite", min_value=20, max_value=1000, value=200, step=20))
 
-    df = listar_facturas(str(desde), str(hasta), busqueda, solo_activas=solo_activas)
+    f1, f2, f3 = st.columns(3)
+    tipo_filtro = f1.selectbox("Tipo", ["Todos", "A", "B", "X", "ticket"])
+    estado_filtro = f2.selectbox("Estado", ["Todos", "emitido", "anulado"])
+    medio_filtro = f3.selectbox("Medio", ["Todos"] + medios_facturados())
+
+    df = listar_facturas(
+        str(desde),
+        str(hasta),
+        busqueda,
+        tipo=tipo_filtro,
+        estado=estado_filtro,
+        medio=medio_filtro,
+        limite=limite,
+    )
     if df.empty:
         st.info("Sin comprobantes en el periodo.")
         return
 
-    total = float(df["total"].sum())
-    iva_total = float(df["iva"].sum())
-    neto_total = float(df["subtotal"].sum())
+    activos = df[df["estado"] != "anulado"]
+    total = float(activos["total"].sum())
+    iva_total = float(activos["iva"].sum())
+    neto_total = float(activos["subtotal"].sum())
     anulados = int((df["estado"] == "anulado").sum())
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Facturado neto", fmt_money(neto_total))
     c2.metric("IVA debito fiscal", fmt_money(iva_total))
     c3.metric("Total bruto", fmt_money(total))
-    c4.metric("Anulados", anulados)
+    c4.metric("Comprobantes", len(df))
+    c5.metric("Anulados", anulados)
+
+    with st.expander("Resumen por tipo y medio de pago", expanded=False):
+        r1, r2 = st.columns(2)
+        if not activos.empty:
+            por_tipo = (
+                activos.groupby("tipo_comprobante", dropna=False)["total"]
+                .agg(["count", "sum"])
+                .reset_index()
+                .rename(columns={"tipo_comprobante": "Tipo", "count": "Cantidad", "sum": "Total"})
+            )
+            por_medio = (
+                activos.groupby("medio_pago", dropna=False)["total"]
+                .agg(["count", "sum"])
+                .reset_index()
+                .rename(columns={"medio_pago": "Medio", "count": "Cantidad", "sum": "Total"})
+            )
+            r1.dataframe(por_tipo, hide_index=True, use_container_width=True)
+            r2.dataframe(por_medio, hide_index=True, use_container_width=True)
+        else:
+            st.info("No hay comprobantes activos para resumir.")
 
     st.markdown("---")
     header = st.columns([1.3, 0.9, 2.2, 1, 1, 1, 0.8, 1.2])
@@ -512,7 +699,7 @@ def _render_listado():
         cols[3].markdown(fmt_money(r["subtotal"]))
         cols[4].markdown(fmt_money(r["iva"]))
         cols[5].markdown(f"**{fmt_money(r['total'])}**")
-        cols[6].markdown("VALIDO" if r["estado"] != "anulado" else "ANULADO")
+        cols[6].markdown(comprobante_estado_label(str(r["estado"])))
         with cols[7]:
             _render_descarga_pdf_factura(
                 factura,
@@ -521,16 +708,24 @@ def _render_listado():
                 compact=True,
             )
             if r["estado"] != "anulado":
-                if st.button("Anular NC", key=f"del_{r['id_factura']}", use_container_width=True):
+                if st.button("Anular", key=f"del_{r['id_factura']}", use_container_width=True):
                     anular_factura(int(r["id_factura"]))
                     st.rerun()
 
     csv = df.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
+    e1, e2 = st.columns(2)
+    e1.download_button(
         "Descargar auditoria CSV",
         csv,
         file_name=f"comprobantes_{desde}_{hasta}.csv",
         mime="text/csv",
+        use_container_width=True,
+    )
+    e2.download_button(
+        "Descargar libro IVA PDF",
+        _pdf_libro_iva(df, desde, hasta),
+        file_name=f"libro_iva_ventas_{desde}_{hasta}.pdf",
+        mime="application/pdf",
         use_container_width=True,
     )
 
