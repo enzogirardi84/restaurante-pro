@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+backups/
+.env
+restaurante programa/.env
+restaurante programa/__pycache__/
+restaurante programa/data/
+restaurante programa/components/__pycache__/
+restaurante programa/services/__pycache__/
+restaurante programa/utils/__pycache__/
+restaurante programa/views/__pycache__/

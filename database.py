@@ -64,8 +64,18 @@ def str_agg(column: str, separator: str = "\\n") -> str:
 # ── Import condicional: psycopg2 solo si se usa PostgreSQL ─────────────
 _pg_pool = None
 
+def _ensure_pg_imports() -> None:
+    """Importa psycopg2 solo cuando se necesita una conexion PostgreSQL."""
+    global psycopg2, pg_pool, RealDictCursor
+    if "psycopg2" not in globals():
+        import psycopg2
+        from psycopg2 import pool as pg_pool
+        from psycopg2.extras import RealDictCursor
+
+
 def _pg_connect_kwargs() -> dict:
     """Retorna kwargs para psycopg2.connect() priorizando DATABASE_URL."""
+    _ensure_pg_imports()
     if config.DATABASE_URL:
         return {"dsn": config.DATABASE_URL, "cursor_factory": RealDictCursor}
     return {
@@ -78,18 +88,14 @@ def _pg_connect_kwargs() -> dict:
         "cursor_factory": RealDictCursor,
     }
 
-if config.DB_ENGINE == "postgresql":
-    import psycopg2
-    from psycopg2 import pool as pg_pool
-    from psycopg2.extras import RealDictCursor
 
-    kwargs = _pg_connect_kwargs()
-    # Para el pool, usamos siempre parámetros individuales (no DSN)
+def _pg_pool_kwargs() -> dict:
+    """Retorna kwargs compatibles con ThreadedConnectionPool."""
     if config.DATABASE_URL:
-        # Extraer componentes de DATABASE_URL
         from urllib.parse import urlparse
+
         parsed = urlparse(config.DATABASE_URL)
-        pool_kwargs = {
+        return {
             "host": parsed.hostname,
             "port": parsed.port or 5432,
             "dbname": parsed.path.lstrip("/"),
@@ -97,18 +103,25 @@ if config.DB_ENGINE == "postgresql":
             "password": parsed.password,
             "sslmode": "require",
         }
-    else:
-        pool_kwargs = {
-            "host": config.DB_HOST,
-            "port": config.DB_PORT,
-            "dbname": config.DB_NAME,
-            "user": config.DB_USER,
-            "password": config.DB_PASSWORD,
-            "sslmode": "require",
-        }
-    _pg_pool = pg_pool.ThreadedConnectionPool(
-        config.DB_POOL_MIN, config.DB_POOL_MAX, **pool_kwargs,
-    )
+    return {
+        "host": config.DB_HOST,
+        "port": config.DB_PORT,
+        "dbname": config.DB_NAME,
+        "user": config.DB_USER,
+        "password": config.DB_PASSWORD,
+        "sslmode": "require",
+    }
+
+
+def _get_pg_pool():
+    """Crea el pool PostgreSQL de forma perezosa."""
+    global _pg_pool
+    _ensure_pg_imports()
+    if _pg_pool is None:
+        _pg_pool = pg_pool.ThreadedConnectionPool(
+            config.DB_POOL_MIN, config.DB_POOL_MAX, **_pg_pool_kwargs(),
+        )
+    return _pg_pool
 
 
 # ── Pool de conexiones ─────────────────────────────────────────────────
@@ -121,11 +134,12 @@ def get_connection() -> Generator[Any, None, None]:
     - SQLite: crea/cierra conexión con WAL + foreign_keys.
     """
     if config.DB_ENGINE == "postgresql":
-        conn = _pg_pool.getconn()
+        pool = _get_pg_pool()
+        conn = pool.getconn()
         try:
             yield conn
         finally:
-            _pg_pool.putconn(conn)
+            pool.putconn(conn)
     else:
         config.DATA_DIR.mkdir(parents=True, exist_ok=True)
         db_path = str(config.DATA_DIR / config.DB_PATH)

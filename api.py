@@ -7,6 +7,7 @@ Ejecución:   uvicorn api:app --reload --port 8000
 from __future__ import annotations
 
 import hashlib
+import os
 from datetime import date, datetime
 from typing import Optional
 
@@ -21,7 +22,14 @@ app = FastAPI(title="COMANDAPRO ERP API", version="2.0")
 # ── CORS ──────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:3000,http://127.0.0.1:3000",
+        ).split(",")
+        if origin.strip()
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
