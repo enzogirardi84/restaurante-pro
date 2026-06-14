@@ -1540,7 +1540,7 @@ def mostrar_descargas_ticket(mesa: dict, detalle: list[dict], medio_pago: str, s
     col_pdf, col_txt = st.columns(2)
     with col_pdf:
         st.download_button(
-            "📄 Descargar ticket PDF",
+            "Descargar ticket PDF",
             pdf_bytes,
             file_name=ticket_filename(mesa, "pdf"),
             mime="application/pdf",
@@ -1549,13 +1549,37 @@ def mostrar_descargas_ticket(mesa: dict, detalle: list[dict], medio_pago: str, s
         )
     with col_txt:
         st.download_button(
-            "⬇ Descargar ticket TXT",
+            "Descargar ticket TXT",
             ticket,
             file_name=ticket_filename(mesa, "txt"),
             mime="text/plain",
             use_container_width=True,
             key=f"{key_prefix}_txt",
         )
+
+
+def render_ultimo_ticket_caja() -> None:
+    ultimo_ticket = st.session_state.get("ultimo_ticket_caja")
+    if not ultimo_ticket:
+        return
+    with st.expander("Ultimo ticket cobrado - descargar PDF", expanded=True):
+        st.success(
+            f"Mesa {ultimo_ticket['mesa'].get('numero_mesa', '?')} cobrada por "
+            f"{money(ultimo_ticket['total'])}. El ticket queda disponible para descargar."
+        )
+        mostrar_descargas_ticket(
+            ultimo_ticket["mesa"],
+            ultimo_ticket["detalle"],
+            ultimo_ticket["medio_pago"],
+            ultimo_ticket["subtotal"],
+            ultimo_ticket["servicio"],
+            ultimo_ticket["total"],
+            ultimo_ticket["ticket"],
+            "ultimo_ticket_caja",
+        )
+        if st.button("Ocultar ultimo ticket", use_container_width=True):
+            st.session_state.ultimo_ticket_caja = None
+            st.rerun()
 
 
 def caja_abierta() -> dict | None:
@@ -1805,9 +1829,13 @@ def mesas_para_caja() -> list[dict]:
 
 def historial_ventas(limit: int = 5) -> list[dict]:
     return rows("""
-        SELECT p.fecha_hora,
+        SELECT p.id_pago,
+               p.id_mesa,
+               p.fecha_hora,
                m.numero_mesa,
                p.medio_pago,
+               p.subtotal,
+               p.servicio,
                p.total,
                p.tipo
         FROM pagos_mesa p
@@ -1815,6 +1843,81 @@ def historial_ventas(limit: int = 5) -> list[dict]:
         ORDER BY p.fecha_hora DESC
         LIMIT ?
     """, (limit,))
+
+
+def ticket_desde_pago(id_pago: int) -> dict | None:
+    pago = one("""
+        SELECT p.id_pago,
+               p.id_mesa,
+               p.fecha_hora,
+               p.medio_pago,
+               p.subtotal,
+               p.servicio,
+               p.total,
+               p.tipo,
+               m.numero_mesa
+        FROM pagos_mesa p
+        JOIN mesas m ON m.id_mesa = p.id_mesa
+        WHERE p.id_pago = ?
+    """, (id_pago,))
+    if not pago:
+        return None
+    detalle = rows("""
+        SELECT MIN(pd.id_detalle) AS id_detalle,
+               pm.id_producto,
+               pm.nombre,
+               pm.categoria,
+               pg.precio_unitario AS precio,
+               SUM(pg.cantidad) AS cantidad,
+               SUM(pg.cantidad * pg.precio_unitario) AS importe
+        FROM pago_detalle pg
+        JOIN pedido_detalle pd ON pd.id_detalle = pg.id_detalle
+        JOIN productos_menu pm ON pm.id_producto = pd.id_producto
+        WHERE pg.id_pago = ?
+        GROUP BY pm.id_producto, pm.nombre, pm.categoria, pg.precio_unitario
+        ORDER BY pm.categoria, pm.nombre
+    """, (id_pago,))
+    if not detalle:
+        detalle = [{
+            "id_detalle": None,
+            "id_producto": None,
+            "nombre": "Consumo mesa",
+            "categoria": "venta",
+            "precio": float(pago.get("subtotal") or 0),
+            "cantidad": 1,
+            "importe": float(pago.get("subtotal") or 0),
+        }]
+    mesa = {"id_mesa": pago["id_mesa"], "numero_mesa": pago["numero_mesa"]}
+    subtotal = float(pago.get("subtotal") or 0)
+    servicio = float(pago.get("servicio") or 0)
+    total = float(pago.get("total") or (subtotal + servicio))
+    medio = str(pago.get("medio_pago") or "")
+    ticket = generar_ticket(mesa, detalle, medio, subtotal, servicio, total)
+    return {
+        "mesa": mesa,
+        "detalle": detalle,
+        "medio_pago": medio,
+        "subtotal": subtotal,
+        "servicio": servicio,
+        "total": total,
+        "ticket": ticket,
+    }
+
+
+def mostrar_descarga_ticket_pago(id_pago: int, key_prefix: str) -> None:
+    data = ticket_desde_pago(id_pago)
+    if not data:
+        return
+    mostrar_descargas_ticket(
+        data["mesa"],
+        data["detalle"],
+        data["medio_pago"],
+        data["subtotal"],
+        data["servicio"],
+        data["total"],
+        data["ticket"],
+        key_prefix,
+    )
 
 
 def anulaciones_recientes(limit: int = 10) -> list[dict]:
@@ -2453,6 +2556,7 @@ def page_caja() -> None:
     procesar_cola_sincronizacion()
     offline_banner()
     title("Terminal de caja", "Cobro rapido, cuenta dividida, tickets e historial.")
+    render_ultimo_ticket_caja()
     caja = caja_abierta()
     if caja:
         c1, c2, c3, c4 = st.columns(4)
@@ -2471,27 +2575,6 @@ def page_caja() -> None:
             registrar_auditoria("caja", "apertura", money(monto))
             st.rerun()
         return
-
-    ultimo_ticket = st.session_state.get("ultimo_ticket_caja")
-    if ultimo_ticket:
-        with st.expander("Último ticket cobrado - descargar PDF", expanded=True):
-            st.success(
-                f"Mesa {ultimo_ticket['mesa'].get('numero_mesa', '?')} cobrada por "
-                f"{money(ultimo_ticket['total'])}. El comprobante queda disponible para descarga."
-            )
-            mostrar_descargas_ticket(
-                ultimo_ticket["mesa"],
-                ultimo_ticket["detalle"],
-                ultimo_ticket["medio_pago"],
-                ultimo_ticket["subtotal"],
-                ultimo_ticket["servicio"],
-                ultimo_ticket["total"],
-                ultimo_ticket["ticket"],
-                "ultimo_ticket_caja",
-            )
-            if st.button("Ocultar último ticket", use_container_width=True):
-                st.session_state.ultimo_ticket_caja = None
-                st.rerun()
 
     with st.expander("Movimientos y cierre"):
         col_mov, col_cierre, col_hist = st.columns([1, 1, 1])
@@ -2566,6 +2649,10 @@ def page_caja() -> None:
                 st.markdown(
                     f"<div class='history-row'><span>Mesa {venta['numero_mesa']}<br><span class='muted'>{escape(venta['medio_pago'])}</span></span><b>{money(venta['total'])}</b></div>",
                     unsafe_allow_html=True,
+                )
+                mostrar_descarga_ticket_pago(
+                    int(venta["id_pago"]),
+                    f"historial_ticket_{venta['id_pago']}",
                 )
             corte_txt, movimientos_corte, medios_corte = generar_corte_caja(caja)
             st.download_button(
@@ -2766,6 +2853,20 @@ def page_caja() -> None:
                     st.rerun()
         medio = st.session_state.medio_pago_caja
         st.caption(f"Medio seleccionado: {medio}")
+        with st.expander("Ticket para descargar", expanded=True):
+            if detalle and total > 0:
+                mostrar_descargas_ticket(
+                    mesa,
+                    detalle,
+                    medio,
+                    subtotal,
+                    servicio,
+                    total,
+                    ticket,
+                    f"ticket_pago_panel_{mesa['id_mesa']}",
+                )
+            else:
+                st.info("La mesa no tiene consumos para generar ticket.")
 
         recibido = st.number_input(
             "Efectivo recibido",
