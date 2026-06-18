@@ -11,6 +11,7 @@ import os
 from datetime import date, datetime
 from typing import Optional
 
+import config
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -19,365 +20,333 @@ from database import get_connection_direct, sql_date, ph, last_id
 
 app = FastAPI(title="COMANDAPRO ERP API", version="2.0")
 
-# ── CORS ──────────────────────────────────────────────────────────────
+# ── CORS ────────────────────────────────────────────────────────────────
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        origin.strip()
-        for origin in os.getenv(
-            "CORS_ORIGINS",
-            "http://localhost:3000,http://127.0.0.1:3000",
-        ).split(",")
-        if origin.strip()
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+        CORSMiddleware,
+        allow_origins=[
+                    origin.strip()
+                    for origin in os.getenv(
+                                    "CORS_ORIGINS",
+                                    "http://localhost:3000,http://127.0.0.1:3000",
+                    ).split(",")
+                    if origin.strip()
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
 )
 
-
-# ── Modelos ───────────────────────────────────────────────────────────
-
+# ── Modelos ──────────────────────────────────────────────────────────────
 class PedidoCreate(BaseModel):
-    id_mesa: int
-    id_usuario: int = 1
-    items: list[dict]  # [{"id_producto": 1, "cantidad": 2, "observaciones": ""}]
-
+        id_mesa: int
+        id_usuario: int = 1
+        items: list[dict]  # [{"id_producto": 1, "cantidad": 2, "observaciones": ""}]
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
-
+        username: str
+        password: str
 
 class TerminalLoginRequest(BaseModel):
-    terminal: str  # mozo, cocina, caja
+        terminal: str  # mozo, cocina, caja
 
-
-# ── Auth Endpoints ────────────────────────────────────────────────────
-
+# ── Auth Endpoints ──────────────────────────────────────────────────────────
 @app.post("/auth/login")
 def auth_login(req: LoginRequest):
-    """Autentica usuario con username + password (SHA256)."""
-    password_hash = hashlib.sha256(req.password.encode()).hexdigest()
-    conn = get_connection_direct()
-    try:
-        import config
-        if config.DB_ENGINE == "postgresql":
-            cur = conn.execute(
-                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE username=%s AND password_hash=%s",
-                (req.username, password_hash)
-            )
-        else:
-            cur = conn.execute(
-                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE username=? AND password_hash=?",
-                (req.username, password_hash)
-            )
-        user = cur.fetchone()
-    finally:
+        """Autentica usuario con username + password (SHA256)."""
+        password_hash = hashlib.sha256(req.password.encode()).hexdigest()
+        conn = get_connection_direct()
+        try:
+                    p = ph()
+                    cur = conn.execute(
+                        f"SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE username={p} AND password_hash={p}",
+                        (req.username, password_hash)
+                    )
+                    user = cur.fetchone()
+finally:
         conn.close()
 
     if not user:
-        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+                raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 
     return {
-        "ok": True,
-        "user": {
-            "id_usuario": user["id_usuario"],
-            "nombre": user["nombre"],
-            "apellido": user["apellido"],
-            "rol": user["rol"],
-            "username": user["username"],
-        }
+                "ok": True,
+                "user": {
+                                "id_usuario": user["id_usuario"],
+                                "nombre": user["nombre"],
+                                "apellido": user["apellido"],
+                                "rol": user["rol"],
+                                "username": user["username"],
+                }
     }
-
 
 @app.post("/auth/terminal")
 def auth_terminal(req: TerminalLoginRequest):
-    """Login directo por terminal (mozo, cocina, caja). Retorna el primer usuario con ese rol."""
-    role_map = {"mozo": "mozo", "cocina": "cocina", "caja": "administrador"}
-    rol = role_map.get(req.terminal)
-    if not rol:
-        raise HTTPException(status_code=400, detail=f"Terminal inválido: {req.terminal}")
+        """Login directo por terminal (mozo, cocina, caja). Retorna el primer usuario con ese rol."""
+        role_map = {"mozo": "mozo", "cocina": "cocina", "caja": "administrador"}
+        rol = role_map.get(req.terminal)
+        if not rol:
+                    raise HTTPException(status_code=400, detail=f"Terminal inválido: {req.terminal}")
 
-    conn = get_connection_direct()
-    try:
-        import config
-        if config.DB_ENGINE == "postgresql":
-            cur = conn.execute(
-                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE rol=%s LIMIT 1",
-                (rol,)
-            )
-        else:
-            cur = conn.execute(
-                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE rol=? LIMIT 1",
-                (rol,)
-            )
-        user = cur.fetchone()
-    finally:
+        conn = get_connection_direct()
+        try:
+                    p = ph()
+                    cur = conn.execute(
+                        f"SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE rol={p} LIMIT 1",
+                        (rol,)
+                    )
+                    user = cur.fetchone()
+finally:
         conn.close()
 
     if not user:
-        raise HTTPException(status_code=404, detail=f"No hay usuario con rol '{rol}'")
+                raise HTTPException(status_code=404, detail=f"No hay usuario con rol '{rol}'")
 
     return {
-        "ok": True,
-        "user": {
-            "id_usuario": user["id_usuario"],
-            "nombre": user["nombre"],
-            "apellido": user["apellido"],
-            "rol": user["rol"],
-            "username": user["username"],
-        }
+                "ok": True,
+                "user": {
+                                "id_usuario": user["id_usuario"],
+                                "nombre": user["nombre"],
+                                "apellido": user["apellido"],
+                                "rol": user["rol"],
+                                "username": user["username"],
+                }
     }
-
 
 @app.post("/auth/admin")
 def auth_admin():
-    """Login directo como administrador (botón ACCESO ADMINISTRADOR)."""
-    conn = get_connection_direct()
-    try:
-        import config
-        if config.DB_ENGINE == "postgresql":
-            cur = conn.execute(
-                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE rol=%s LIMIT 1",
-                ("administrador",)
-            )
-        else:
-            cur = conn.execute(
-                "SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE rol=? LIMIT 1",
-                ("administrador",)
-            )
-        user = cur.fetchone()
-    finally:
+        """Login directo como administrador (botón ACCESO ADMINISTRADOR)."""
+        conn = get_connection_direct()
+        try:
+                    p = ph()
+                    cur = conn.execute(
+                        f"SELECT id_usuario, nombre, apellido, rol, username FROM usuarios WHERE rol={p} LIMIT 1",
+                        ("administrador",)
+                    )
+                    user = cur.fetchone()
+finally:
         conn.close()
 
     if not user:
-        raise HTTPException(status_code=404, detail="No hay usuario administrador")
+                raise HTTPException(status_code=404, detail="No hay usuario administrador")
 
     return {
-        "ok": True,
-        "user": {
-            "id_usuario": user["id_usuario"],
-            "nombre": user["nombre"],
-            "apellido": user["apellido"],
-            "rol": user["rol"],
-            "username": user["username"],
-        }
+                "ok": True,
+                "user": {
+                                "id_usuario": user["id_usuario"],
+                                "nombre": user["nombre"],
+                                "apellido": user["apellido"],
+                                "rol": user["rol"],
+                                "username": user["username"],
+                }
     }
 
-
-# ── Endpoints ─────────────────────────────────────────────────────────
-
+# ── Endpoints ───────────────────────────────────────────────────────────────
 @app.get("/")
 def root():
-    return {"app": "COMANDAPRO ERP API", "version": "2.0"}
-
+        return {"app": "COMANDAPRO ERP API", "version": "2.0"}
 
 @app.get("/api/mesas")
 def listar_mesas(estado: Optional[str] = None):
-    """Lista mesas. Filtro opcional: ?estado=libre|ocupada|esperando_cuenta"""
-    conn = get_connection_direct()
-    try:
-        if estado:
-            cur = conn.execute(
-                "SELECT id_mesa, numero_mesa, estado FROM mesas WHERE estado=? ORDER BY numero_mesa",
-                (estado,)
-            )
+        """Lista mesas. Filtro opcional: ?estado=libre|ocupada|esperando_cuenta"""
+        conn = get_connection_direct()
+        try:
+                    p = ph()
+                    if estado:
+                                    cur = conn.execute(
+                                                        f"SELECT id_mesa, numero_mesa, estado FROM mesas WHERE estado={p} ORDER BY numero_mesa",
+                                                        (estado,)
+                                    )
         else:
-            cur = conn.execute(
-                "SELECT id_mesa, numero_mesa, estado FROM mesas ORDER BY numero_mesa"
-            )
-        return [dict(r) for r in cur.fetchall()]
-    finally:
+                        cur = conn.execute(
+                                            "SELECT id_mesa, numero_mesa, estado FROM mesas ORDER BY numero_mesa"
+                        )
+                    return [dict(r) for r in cur.fetchall()]
+finally:
         conn.close()
-
 
 @app.get("/api/productos")
 def listar_productos(categoria: Optional[str] = None):
-    """Lista productos del menú. Filtro opcional: ?categoria=cocina|bebidas|postres"""
+        """Lista productos del menú. Filtro opcional: ?categoria=cocina|bebidas|postres"""
     conn = get_connection_direct()
     try:
-        if categoria:
+                p = ph()
+                if categoria:
+                                cur = conn.execute(
+                                                    f"SELECT id_producto, nombre, precio_venta, categoria, activo, url_imagen"
+                                                    f" FROM productos_menu WHERE categoria={p} AND activo=1 ORDER BY nombre",
+                                                    (categoria,)
+                                )
+    else:
             cur = conn.execute(
-                "SELECT id_producto, nombre, precio_venta, categoria, activo, url_imagen"
-                " FROM productos_menu WHERE categoria=? AND activo=1 ORDER BY nombre",
-                (categoria,)
+                                "SELECT id_producto, nombre, precio_venta, categoria, activo, url_imagen"
+                                " FROM productos_menu WHERE activo=1 ORDER BY categoria, nombre"
             )
-        else:
-            cur = conn.execute(
-                "SELECT id_producto, nombre, precio_venta, categoria, activo, url_imagen"
-                " FROM productos_menu WHERE activo=1 ORDER BY categoria, nombre"
-            )
-        return [dict(r) for r in cur.fetchall()]
-    finally:
+                return [dict(r) for r in cur.fetchall()]
+finally:
         conn.close()
-
 
 @app.get("/api/pedidos")
 def listar_pedidos(estado: Optional[str] = None, mesa: Optional[int] = None):
-    """Lista pedidos. Filtros: ?estado=pendiente|cobrado&mesa=3"""
+        """Lista pedidos. Filtros: ?estado=pendiente|cobrado&mesa=3"""
     conn = get_connection_direct()
     try:
-        sql = """
-            SELECT pc.id_pedido, pc.id_mesa, m.numero_mesa,
-                   pc.fecha_hora, pc.estado_comanda,
-                   u.nombre || ' ' || u.apellido AS mozo
-            FROM pedidos_cabecera pc
-            JOIN mesas m ON m.id_mesa = pc.id_mesa
-            JOIN usuarios u ON u.id_usuario = pc.id_usuario
-            WHERE 1=1
-        """
-        params = []
-        if estado:
-            sql += " AND pc.estado_comanda=?"
-            params.append(estado)
-        if mesa:
-            sql += " AND pc.id_mesa=?"
-            params.append(mesa)
+                p = ph()
+                sql = """
+                    SELECT pc.id_pedido, pc.id_mesa, m.numero_mesa,
+                           pc.fecha_hora, pc.estado_comanda,
+                           u.nombre || ' ' || u.apellido AS mozo
+                    FROM pedidos_cabecera pc
+                    JOIN mesas m ON m.id_mesa = pc.id_mesa
+                    JOIN usuarios u ON u.id_usuario = pc.id_usuario
+                    WHERE 1=1
+                """
+                params = []
+                if estado:
+                                sql += f" AND pc.estado_comanda={p}"
+                                params.append(estado)
+                            if mesa:
+                    sql += f" AND pc.id_mesa={p}"
+                                            params.append(mesa)
         sql += " ORDER BY pc.fecha_hora DESC"
 
         cur = conn.execute(sql, params)
         return [dict(r) for r in cur.fetchall()]
-    finally:
+finally:
         conn.close()
-
 
 @app.get("/api/pedidos/{id_pedido}")
 def detalle_pedido(id_pedido: int):
-    """Detalle completo de un pedido con sus renglones."""
+        """Detalle completo de un pedido con sus renglones."""
     conn = get_connection_direct()
     try:
+                p = ph()
         cur = conn.execute(
-            "SELECT pc.id_pedido, pc.fecha_hora, pc.estado_comanda,"
-            " m.numero_mesa, u.nombre || ' ' || u.apellido AS mozo"
-            " FROM pedidos_cabecera pc"
-            " JOIN mesas m ON m.id_mesa = pc.id_mesa"
-            " JOIN usuarios u ON u.id_usuario = pc.id_usuario"
-            " WHERE pc.id_pedido=?",
-            (id_pedido,)
+                        f"SELECT pc.id_pedido, pc.fecha_hora, pc.estado_comanda,"
+                        f" m.numero_mesa, u.nombre || ' ' || u.apellido AS mozo"
+                        f" FROM pedidos_cabecera pc"
+                        f" JOIN mesas m ON m.id_mesa = pc.id_mesa"
+                        f" JOIN usuarios u ON u.id_usuario = pc.id_usuario"
+                        f" WHERE pc.id_pedido={p}",
+                        (id_pedido,)
         )
         cabecera = cur.fetchone()
         if not cabecera:
-            raise HTTPException(404, "Pedido no encontrado")
+                        raise HTTPException(404, "Pedido no encontrado")
 
         cur = conn.execute(
-            "SELECT pd.id_detalle, pm.nombre AS producto, pd.cantidad,"
-            " pd.precio_unitario_facturado, pd.observaciones"
-            " FROM pedido_detalle pd"
-            " JOIN productos_menu pm ON pm.id_producto = pd.id_producto"
-            " WHERE pd.id_pedido=?",
-            (id_pedido,)
+                        f"SELECT pd.id_detalle, pm.nombre AS producto, pd.cantidad,"
+                        f" pd.precio_unitario_facturado, pd.observaciones"
+                        f" FROM pedido_detalle pd"
+                        f" JOIN productos_menu pm ON pm.id_producto = pd.id_producto"
+                        f" WHERE pd.id_pedido={p}",
+                        (id_pedido,)
         )
         return {"pedido": dict(cabecera), "detalle": [dict(r) for r in cur.fetchall()]}
-    finally:
+finally:
         conn.close()
-
 
 @app.get("/api/ventas/hoy")
 def ventas_hoy():
-    """Resumen de ventas del día actual."""
+        """Resumen de ventas del día actual."""
     conn = get_connection_direct()
     try:
-        cur = conn.execute(f"""
-            SELECT COUNT(DISTINCT pc.id_pedido) AS pedidos,
-                   COALESCE(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total,
-                   COUNT(DISTINCT pc.id_mesa) AS mesas
-            FROM pedidos_cabecera pc
-            JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
-            WHERE pc.estado_comanda = 'cobrado'
-              AND {sql_date('pc.fecha_hora')} = {sql_date("'now', 'localtime'")}
-        """)
+                cur = conn.execute(f"""
+                            SELECT COUNT(DISTINCT pc.id_pedido) AS pedidos,
+                                               COALESCE(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total,
+                                                                  COUNT(DISTINCT pc.id_mesa) AS mesas
+                                                                              FROM pedidos_cabecera pc
+                                                                                          JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
+                                                                                                      WHERE pc.estado_comanda = 'cobrado'
+                                                                                                                  AND {sql_date('pc.fecha_hora')} = {sql_date("'now', 'localtime'")}
+                                                                                                                          """)
         row = cur.fetchone()
         return dict(row) if row else {"pedidos": 0, "total": 0, "mesas": 0}
-    finally:
+finally:
         conn.close()
-
 
 @app.get("/api/ventas/semana")
 def ventas_semana():
-    """Ventas diarias de los últimos 7 días."""
+        """Ventas diarias de los últimos 7 días."""
     conn = get_connection_direct()
     try:
-        cur = conn.execute(f"""
-            SELECT {sql_date('pc.fecha_hora')} AS dia,
-                   ROUND(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total
-            FROM pedidos_cabecera pc
-            JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
-            WHERE pc.estado_comanda = 'cobrado'
-              AND pc.fecha_hora >= {sql_date("'now', '-7 days', 'localtime'")}
-            GROUP BY dia
-            ORDER BY dia
-        """)
+                cur = conn.execute(f"""
+                            SELECT {sql_date('pc.fecha_hora')} AS dia,
+                                               ROUND(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total
+                                                           FROM pedidos_cabecera pc
+                                                                       JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
+                                                                                   WHERE pc.estado_comanda = 'cobrado'
+                                                                                               AND pc.fecha_hora >= {sql_date("'now', '-7 days', 'localtime'")}
+                                                                                                           GROUP BY dia
+                                                                                                                       ORDER BY dia
+                                                                                                                               """)
         return [dict(r) for r in cur.fetchall()]
-    finally:
+finally:
         conn.close()
-
 
 @app.get("/api/insumos/criticos")
 def insumos_criticos():
-    """Insumos con stock por debajo del mínimo."""
+        """Insumos con stock por debajo del mínimo."""
     conn = get_connection_direct()
     try:
-        cur = conn.execute("""
-            SELECT i.nombre, i.stock_actual, i.stock_minimo, i.unidad_medida,
-                   d.nombre_deposito AS deposito
-            FROM stock_deposito sd
-            JOIN insumos i ON i.id_insumo = sd.id_insumo
-            JOIN depositos d ON d.id_deposito = sd.id_deposito
-            WHERE sd.cantidad_disponible <= i.stock_minimo
-            ORDER BY (i.stock_minimo - sd.cantidad_disponible) DESC
-        """)
+                cur = conn.execute("""
+                            SELECT i.nombre, i.stock_actual, i.stock_minimo, i.unidad_medida,
+                                               d.nombre_deposito AS deposito
+                                                           FROM stock_deposito sd
+                                                                       JOIN insumos i ON i.id_insumo = sd.id_insumo
+                                                                                   JOIN depositos d ON d.id_deposito = sd.id_deposito
+                                                                                               WHERE sd.cantidad_disponible <= i.stock_minimo
+                                                                                                           ORDER BY (i.stock_minimo - sd.cantidad_disponible) DESC
+                                                                                                                   """)
         return [dict(r) for r in cur.fetchall()]
-    finally:
+finally:
         conn.close()
-
 
 @app.post("/api/pedidos")
 def crear_pedido(pedido: PedidoCreate):
-    """Crea un pedido completo (cabecera + detalle)."""
+        """Crea un pedido completo (cabecera + detalle)."""
     conn = get_connection_direct()
     try:
-        conn.execute("BEGIN")
+                conn.execute("BEGIN")
+        p = ph()
+        returning = " RETURNING id_pedido" if config.DB_ENGINE == "postgresql" else ""
         cur = conn.execute(
-            f"INSERT INTO pedidos_cabecera (id_mesa, id_usuario) VALUES ({ph()},{ph()})"
-            + (" RETURNING id_pedido" if "postgresql" in str(type(conn)) else ""),
-            (pedido.id_mesa, pedido.id_usuario)
+                        f"INSERT INTO pedidos_cabecera (id_mesa, id_usuario) VALUES ({p},{p}){returning}",
+                        (pedido.id_mesa, pedido.id_usuario)
         )
         id_pedido = last_id(conn, cur)
 
         for item in pedido.items:
-            conn.execute(
-                "INSERT INTO pedido_detalle (id_pedido, id_producto, cantidad, observaciones)"
-                " VALUES (?,?,?,?)",
-                (id_pedido, item["id_producto"], item["cantidad"],
-                 item.get("observaciones", ""))
-            )
+                        conn.execute(
+                                            f"INSERT INTO pedido_detalle (id_pedido, id_producto, cantidad, observaciones)"
+                                            f" VALUES ({p},{p},{p},{p})",
+                                            (id_pedido, item["id_producto"], item["cantidad"],
+                                                              item.get("observaciones", ""))
+                        )
 
-        conn.execute("UPDATE mesas SET estado='ocupada' WHERE id_mesa=?",
-                     (pedido.id_mesa,))
+        conn.execute(f"UPDATE mesas SET estado='ocupada' WHERE id_mesa={p}",
+                                          (pedido.id_mesa,))
         conn.commit()
         return {"ok": True, "id_pedido": id_pedido}
-    except Exception as e:
+except Exception as e:
         conn.rollback()
         raise HTTPException(500, str(e))
-    finally:
+finally:
         conn.close()
-
 
 @app.get("/api/stock")
 def stock_actual():
-    """Stock actual por depósito."""
+        """Stock actual por depósito."""
     conn = get_connection_direct()
     try:
-        cur = conn.execute("""
-            SELECT i.nombre AS insumo, i.stock_actual, i.stock_minimo,
-                   sd.cantidad_disponible, d.nombre_deposito AS deposito,
-                   i.unidad_medida
-            FROM stock_deposito sd
-            JOIN insumos i ON i.id_insumo = sd.id_insumo
-            JOIN depositos d ON d.id_deposito = sd.id_deposito
-            ORDER BY d.nombre_deposito, i.nombre
-        """)
+                cur = conn.execute("""
+                SELECT i.nombre AS insumo, i.stock_actual, i.stock_minimo,
+                                   sd.cantidad_disponible, d.nombre_deposito AS deposito,
+                                                      i.unidad_medida
+                                                                  FROM stock_deposito sd
+                                                                              JOIN insumos i ON i.id_insumo = sd.id_insumo
+                                                                                          JOIN depositos d ON d.id_deposito = sd.id_deposito
+                                                                                                      ORDER BY d.nombre_deposito, i.nombre
+                                                                                                              """)
         return [dict(r) for r in cur.fetchall()]
-    finally:
+finally:
         conn.close()
