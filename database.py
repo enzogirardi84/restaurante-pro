@@ -67,7 +67,9 @@ _pg_pool = None
 def _ensure_pg_imports() -> None:
     """Importa psycopg2 solo cuando se necesita una conexion PostgreSQL."""
     global psycopg2, pg_pool, RealDictCursor
-    if "psycopg2" not in globals():
+    try:
+        psycopg2
+    except NameError:
         import psycopg2
         from psycopg2 import pool as pg_pool
         from psycopg2.extras import RealDictCursor
