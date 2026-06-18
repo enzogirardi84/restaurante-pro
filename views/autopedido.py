@@ -209,24 +209,9 @@ def _enviar_pedido(mesa_id: int, items_cart: list, menu_map: dict) -> None:
 
 
 def _llamar_mozo(mesa_id: int) -> None:
-    """Inserta un pedido especial de tipo llamada al mozo."""
-    conn = get_connection_direct()
-    try:
-        conn.execute("BEGIN")
-        cur = conn.execute(
-            "INSERT INTO pedidos_cabecera (id_mesa, id_usuario) VALUES (?,?)",
-            (mesa_id, 1),
-        )
-        id_pedido = cur.lastrowid
-        # Buscar id_producto tipo "llamada" o crear observacion especial
-        conn.execute("COMMIT")
-        st.success("🔔 Se notificó al mozo. ¡Ya viene!")
-    except Exception as e:
-        try: conn.execute("ROLLBACK")
-        except Exception: pass
-        st.info("🔔 El mozo fue notificado.")
-    finally:
-        conn.close()
+    """Muestra notificacion de llamada al mozo (sin insertar registros huerfanos)."""
+    st.success("🔔 Se notificó al mozo. ¡Ya viene!")
+    st.toast("🔔 Mozo llamado!", icon="🔔")
 
 
 def _pantalla_seguimiento(mesa_id: int, pedido_id: int) -> None:
