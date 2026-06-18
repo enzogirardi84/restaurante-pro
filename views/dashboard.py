@@ -30,16 +30,18 @@ def _layout_vintage(fig: go.Figure) -> go.Figure:
 
 @st.cache_data(ttl=30)
 def _query_metricas(fecha_ini: str, fecha_fin: str) -> dict:
+    import config
     conn = get_connection_direct()
     try:
+        p = "%s" if config.DB_ENGINE == "postgresql" else "?"
         cur = conn.execute(
-            """
+            f"""
             SELECT COUNT(DISTINCT pc.id_pedido) AS pedidos,
                    COALESCE(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS ingresos
             FROM pedidos_cabecera pc
             JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
             WHERE pc.estado_comanda = 'cobrado'
-              AND DATE(pc.fecha_hora) BETWEEN ? AND ?
+              AND DATE(pc.fecha_hora) BETWEEN {p} AND {p}
             """,
             (fecha_ini, fecha_fin),
         )
@@ -71,58 +73,65 @@ def _query_metricas(fecha_ini: str, fecha_fin: str) -> dict:
         "alertas_cnt": alertas_cnt,
     }
 
-
 @st.cache_data(ttl=30)
 def _query_ventas_diarias(fecha_ini: str, fecha_fin: str) -> pd.DataFrame:
+    import config
     conn = get_connection_direct()
     try:
-        return pd.read_sql_query(
-            """
+        p = "%s" if config.DB_ENGINE == "postgresql" else "?"
+        sql = f"""
             SELECT DATE(pc.fecha_hora) AS dia,
                    ROUND(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total,
                    COUNT(DISTINCT pc.id_pedido) AS pedidos
             FROM pedidos_cabecera pc
             JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
             WHERE pc.estado_comanda = 'cobrado'
-              AND DATE(pc.fecha_hora) BETWEEN ? AND ?
+              AND DATE(pc.fecha_hora) BETWEEN {p} AND {p}
             GROUP BY dia
             ORDER BY dia
-            """,
-            conn,
-            params=(fecha_ini, fecha_fin),
-        )
+        """
+        return pd.read_sql_query(sql, conn, params=(fecha_ini, fecha_fin))
     finally:
         conn.close()
-
 
 @st.cache_data(ttl=30)
 def _query_ventas_por_hora(fecha_ini: str, fecha_fin: str) -> pd.DataFrame:
+    import config
     conn = get_connection_direct()
     try:
-        return pd.read_sql_query(
+        if config.DB_ENGINE == "postgresql":
+            sql = """
+                SELECT EXTRACT(HOUR FROM pc.fecha_hora)::INTEGER AS hora,
+                       ROUND(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total
+                FROM pedidos_cabecera pc
+                JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
+                WHERE pc.estado_comanda = 'cobrado'
+                AND DATE(pc.fecha_hora) BETWEEN %s AND %s
+                GROUP BY hora
+                ORDER BY hora
             """
-            SELECT CAST(strftime('%H', pc.fecha_hora) AS INTEGER) AS hora,
-                   ROUND(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total
-            FROM pedidos_cabecera pc
-            JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
-            WHERE pc.estado_comanda = 'cobrado'
-              AND DATE(pc.fecha_hora) BETWEEN ? AND ?
-            GROUP BY hora
-            ORDER BY hora
-            """,
-            conn,
-            params=(fecha_ini, fecha_fin),
-        )
+        else:
+            sql = """
+                SELECT CAST(strftime('%H', pc.fecha_hora) AS INTEGER) AS hora,
+                       ROUND(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS total
+                FROM pedidos_cabecera pc
+                JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
+                WHERE pc.estado_comanda = 'cobrado'
+                AND DATE(pc.fecha_hora) BETWEEN ? AND ?
+                GROUP BY hora
+                ORDER BY hora
+            """
+        return pd.read_sql_query(sql, conn, params=(fecha_ini, fecha_fin))
     finally:
         conn.close()
 
-
 @st.cache_data(ttl=30)
 def _query_top_productos(fecha_ini: str, fecha_fin: str, n: int = 10) -> pd.DataFrame:
+    import config
     conn = get_connection_direct()
     try:
-        return pd.read_sql_query(
-            f"""
+        p = "%s" if config.DB_ENGINE == "postgresql" else "?"
+        sql = f"""
             SELECT pm.nombre,
                    SUM(pd.cantidad) AS total_vendido,
                    ROUND(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS ingresos
@@ -130,24 +139,22 @@ def _query_top_productos(fecha_ini: str, fecha_fin: str, n: int = 10) -> pd.Data
             JOIN pedidos_cabecera pc ON pc.id_pedido = pd.id_pedido
             JOIN productos_menu pm ON pm.id_producto = pd.id_producto
             WHERE pc.estado_comanda = 'cobrado'
-              AND DATE(pc.fecha_hora) BETWEEN ? AND ?
+              AND DATE(pc.fecha_hora) BETWEEN {p} AND {p}
             GROUP BY pm.id_producto, pm.nombre
             ORDER BY total_vendido DESC
             LIMIT {int(n)}
-            """,
-            conn,
-            params=(fecha_ini, fecha_fin),
-        )
+        """
+        return pd.read_sql_query(sql, conn, params=(fecha_ini, fecha_fin))
     finally:
         conn.close()
 
-
 @st.cache_data(ttl=30)
 def _query_ranking_mozos(fecha_ini: str, fecha_fin: str) -> pd.DataFrame:
+    import config
     conn = get_connection_direct()
     try:
-        return pd.read_sql_query(
-            """
+        p = "%s" if config.DB_ENGINE == "postgresql" else "?"
+        sql = f"""
             SELECT u.nombre || ' ' || u.apellido AS mozo,
                    COUNT(DISTINCT pc.id_pedido) AS pedidos,
                    ROUND(SUM(pd.cantidad * pd.precio_unitario_facturado), 0) AS ventas
@@ -155,16 +162,13 @@ def _query_ranking_mozos(fecha_ini: str, fecha_fin: str) -> pd.DataFrame:
             JOIN usuarios u ON u.id_usuario = pc.id_usuario
             JOIN pedido_detalle pd ON pd.id_pedido = pc.id_pedido
             WHERE pc.estado_comanda = 'cobrado'
-              AND DATE(pc.fecha_hora) BETWEEN ? AND ?
+              AND DATE(pc.fecha_hora) BETWEEN {p} AND {p}
             GROUP BY u.id_usuario, mozo
             ORDER BY ventas DESC
-            """,
-            conn,
-            params=(fecha_ini, fecha_fin),
-        )
+        """
+        return pd.read_sql_query(sql, conn, params=(fecha_ini, fecha_fin))
     finally:
         conn.close()
-
 
 @st.cache_data(ttl=30)
 def _query_estado_mesas() -> pd.DataFrame:
