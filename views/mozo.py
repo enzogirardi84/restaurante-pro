@@ -4,6 +4,7 @@ views/mozo.py - Terminal tactil del camarero con carta visual y estado de mesas.
 from __future__ import annotations
 
 from html import escape
+import unicodedata
 
 import streamlit as st
 from components.imagenes import obtener_imagen
@@ -85,6 +86,16 @@ def _pedidos_activos_por_mesa() -> dict:
 def _limpiar_cache() -> None:
     _cargar_mesas.clear()
     _pedidos_activos_por_mesa.clear()
+
+
+def _categoria_key(value: object) -> str:
+    raw = " ".join(str(value or "").strip().split())
+    sin_tildes = unicodedata.normalize("NFKD", raw)
+    return "".join(ch for ch in sin_tildes if not unicodedata.combining(ch)).casefold()
+
+
+def _categoria_matches(actual: object, esperada: object) -> bool:
+    return _categoria_key(actual) == _categoria_key(esperada)
 
 
 def render() -> None:
@@ -257,10 +268,11 @@ def _tab_carta(mesa_id: int) -> None:
     categorias_presentes = []
     vistos = set()
     for prod in menu:
-        categoria = prod["categoria"]
-        if categoria not in vistos:
+        categoria = str(prod["categoria"] or "").strip()
+        cat_key = _categoria_key(categoria)
+        if cat_key and cat_key not in vistos:
             categorias_presentes.append(categoria)
-            vistos.add(categoria)
+            vistos.add(cat_key)
 
     cat_labels = {
         "Entradas": "Entradas",
@@ -275,7 +287,7 @@ def _tab_carta(mesa_id: int) -> None:
     }
 
     for cat_key in categorias_presentes:
-        items = [p for p in menu if p["categoria"] == cat_key]
+        items = [p for p in menu if _categoria_matches(p["categoria"], cat_key)]
         if not items:
             continue
 

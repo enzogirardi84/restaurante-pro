@@ -127,7 +127,12 @@ def listar_productos(categoria: Optional[str] = None):
     conn = get_connection_direct()
     try:
         if categoria:
-            cur = conn.execute(f"SELECT id_producto, nombre, precio_venta, categoria, activo, url_imagen FROM productos_menu WHERE categoria={p} AND activo=1 ORDER BY nombre", (categoria,))
+            cur = conn.execute(
+                "SELECT id_producto, nombre, precio_venta, categoria, activo, url_imagen "
+                f"FROM productos_menu WHERE lower(trim(categoria))=lower(trim({p})) "
+                "AND activo=1 ORDER BY nombre",
+                (categoria,),
+            )
         else:
             cur = conn.execute("SELECT id_producto, nombre, precio_venta, categoria, activo, url_imagen FROM productos_menu WHERE activo=1 ORDER BY categoria, nombre")
         return [dict(r) for r in cur.fetchall()]

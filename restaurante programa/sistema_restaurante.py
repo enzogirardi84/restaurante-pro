@@ -2355,21 +2355,12 @@ def page_cocina() -> None:
                 format_func=lambda x: mesa_opts[x],
                 key="cocina_mesa_sel",
             )
-            from components.categorias import CATEGORIAS_MENU, CATEGORIAS_LEGACY
-            categorias_preferidas = [
-                cat for cat in CATEGORIAS_MENU + CATEGORIAS_LEGACY
-                if any(p["categoria"] == cat for p in menu_all)
-            ]
-            categorias_extra = sorted({
-                str(p["categoria"])
-                for p in menu_all
-                if p["categoria"] not in set(CATEGORIAS_MENU + CATEGORIAS_LEGACY)
-            })
-            categorias = categorias_preferidas + categorias_extra
+            from components.categorias import categorias_visibles, productos_de_categoria
+            categorias = categorias_visibles(menu_all)
             cat_tabs = st.tabs(categorias) if categorias else []
             for ctab, cat in zip(cat_tabs, categorias):
                 with ctab:
-                    prods = [p for p in menu_all if p["categoria"] == cat]
+                    prods = productos_de_categoria(menu_all, cat)
                     if not prods:
                         st.caption("Sin productos en esta categoría.")
                         continue
@@ -3683,31 +3674,21 @@ def page_mozo() -> None:
     left, right = st.columns([1.62, 0.88], gap="large")
     menu = get_menu()
     with left:
-        from components.categorias import CATEGORIAS_MENU, CATEGORIAS_LEGACY
+        from components.categorias import categorias_visibles, productos_de_categoria
         filtro = st.text_input("Buscar producto", placeholder="Escribi nombre del plato...").strip().lower()
         if filtro:
-            _resultados = [p for p in menu if filtro in p["nombre"].lower()]
+            _resultados = [p for p in menu if filtro in str(p["nombre"]).lower()]
             if len(_resultados) > 0:
                 st.caption(f"{len(_resultados)} resultado(s) para '{filtro}'")
-        categorias_ordenadas = [
-            cat
-            for cat in CATEGORIAS_MENU + CATEGORIAS_LEGACY
-            if any(p["categoria"] == cat for p in menu)
-        ]
-        categorias_extra = sorted({
-            str(p["categoria"])
-            for p in menu
-            if p["categoria"] not in set(CATEGORIAS_MENU + CATEGORIAS_LEGACY)
-        })
-        categorias_visibles = categorias_ordenadas + categorias_extra
-        if not categorias_visibles:
+        categorias = categorias_visibles(menu)
+        if not categorias:
             st.info("No hay productos activos en el menu.")
-        tabs = st.tabs(categorias_visibles) if categorias_visibles else []
-        for tab, cat in zip(tabs, categorias_visibles):
+        tabs = st.tabs(categorias) if categorias else []
+        for tab, cat in zip(tabs, categorias):
             with tab:
-                productos = [p for p in menu if p["categoria"] == cat and (not filtro or filtro in p["nombre"].lower())]
+                productos = productos_de_categoria(menu, cat, filtro)
                 if not productos:
-                    st.info("Sin productos para este filtro.")
+                    st.info("Sin productos para esta categoria o busqueda.")
                 for p in productos:
                     pid = int(p["id_producto"])
                     qty = st.session_state.cart.get(pid, {}).get("cantidad", 0)

@@ -73,6 +73,7 @@ def rearmar_db():
         # Sembrar mesas
         for i in range(1, 9):
             conn.execute("INSERT OR IGNORE INTO mesas (numero_mesa, estado) VALUES (?, 'libre')", (i,))
+        conn.execute("UPDATE mesas SET estado = 'libre'")
         conn.commit()
         # Crear usuario de prueba
         conn.execute("""

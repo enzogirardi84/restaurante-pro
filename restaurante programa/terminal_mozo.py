@@ -9,7 +9,7 @@ from html import escape
 import streamlit as st
 import pandas as pd
 from database import get_connection, init_db, rows as db_rows
-from components.categorias import CATEGORIAS_MENU
+from components.categorias import categorias_visibles, productos_de_categoria
 
 
 COLOR_PRIMARY = "#b42318"
@@ -656,13 +656,11 @@ def pantalla_pedido() -> None:
             placeholder="Ej: milanesa, vino, postre...",
         ).strip().lower()
 
-        categorias = [(c, c) for c in CATEGORIAS_MENU]
-        tabs = st.tabs([label for _, label in categorias])
-        for tab, (cat_key, _cat_label) in zip(tabs, categorias):
+        categorias = categorias_visibles(menu)
+        tabs = st.tabs(categorias)
+        for tab, cat_key in zip(tabs, categorias):
             with tab:
-                productos = [p for p in menu if p["categoria"] == cat_key]
-                if busqueda:
-                    productos = [p for p in productos if busqueda in p["nombre"].lower()]
+                productos = productos_de_categoria(menu, cat_key, busqueda)
                 if not productos:
                     st.caption("Sin productos para este filtro.")
                     continue

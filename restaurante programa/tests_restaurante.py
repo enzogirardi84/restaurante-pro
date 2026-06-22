@@ -23,6 +23,12 @@ from cash_utils import (
     cash_expected,
 )
 from cloud_config import masked_status_table, normalize_supabase_url
+from components.categorias import (
+    categoria_coincide,
+    categorias_visibles,
+    normalizar_categoria,
+    productos_de_categoria,
+)
 from kitchen_utils import kitchen_auto_refresh_seconds
 from order_utils import MAX_ORDER_NOTE_LENGTH, normalize_order_cart
 from permission_utils import ADMIN_MODULES, modules_for_role
@@ -68,6 +74,20 @@ def test_normalize_order_cart_merges_and_cleans_items():
     assert 2 not in by_product
     assert 3 not in by_product
     assert len(by_product[4]["observaciones"]) == MAX_ORDER_NOTE_LENGTH
+
+
+def test_menu_category_filter_uses_normalized_keys():
+    menu = [
+        {"id_producto": 1, "nombre": "Ravioles de calabaza", "categoria": " Pastas "},
+        {"id_producto": 2, "nombre": "Gnocchis de papa", "categoria": "pastas"},
+        {"id_producto": 3, "nombre": "Agua mineral", "categoria": "Bebidas"},
+    ]
+
+    assert normalizar_categoria(" PÁSTAS ") == "pastas"
+    assert categoria_coincide(" Pastas ", "pastas")
+    assert categorias_visibles(menu)[:2] == ["Pastas", "Bebidas"]
+    assert [p["id_producto"] for p in productos_de_categoria(menu, "Pastas")] == [1, 2]
+    assert [p["id_producto"] for p in productos_de_categoria(menu, "pastas", "ñoCCHI")] == [2]
 
 
 def test_default_system_accesses_work():
