@@ -29,8 +29,12 @@ from permission_utils import ADMIN_MODULES, modules_for_role
 from security import hash_password, is_password_hash, verify_password
 
 
+TEST_TMP_ROOT = Path(os.environ.get("RESTAURANTE_TEST_TMP", Path(__file__).resolve().parents[1] / ".test_tmp"))
+
+
 def fresh_db():
-    tmp = Path(tempfile.mkdtemp())
+    TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(dir=TEST_TMP_ROOT))
     database.DB_DIR = tmp
     database.DB_PATH = tmp / "restaurante.db"
     database.init_db()

@@ -8,11 +8,30 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-load_dotenv(Path(__file__).parent / ".env")
+APP_DIR = Path(__file__).resolve().parent
+ROOT_DIR = APP_DIR.parent
+
+_PREEXISTING_ENV_KEYS = set(os.environ)
+
+
+def _load_project_envs() -> None:
+    merged: dict[str, str] = {}
+    for env_path in (ROOT_DIR / ".env", APP_DIR / ".env"):
+        if not env_path.exists():
+            continue
+        for key, value in dotenv_values(env_path).items():
+            if value is not None:
+                merged[key] = str(value)
+    for key, value in merged.items():
+        if key not in _PREEXISTING_ENV_KEYS:
+            os.environ[key] = value
+
+
+_load_project_envs()
 
 
 SECRET_KEYS = (
@@ -22,6 +41,7 @@ SECRET_KEYS = (
     "DATABASE_URL_DIRECTA",
     "SUPABASE_DB_URL",
     "SUPABASE_URL",
+    "SUPABASE_REST_URL",
     "SUPABASE_ANON_KEY",
     "SUPABASE_SERVICE_ROLE_KEY",
     "NOMBRE_LOCAL",
@@ -67,6 +87,7 @@ def _streamlit_secret(name: str) -> str:
             # Mapear nombres planos a claves anidadas
             key_map = {
                 "SUPABASE_URL": "url",
+                "SUPABASE_REST_URL": "rest_url",
                 "SUPABASE_ANON_KEY": "anon_key",
                 "SUPABASE_SERVICE_ROLE_KEY": "service_role_key",
             }
@@ -101,7 +122,7 @@ def normalize_supabase_url(value: str) -> str:
 
 def supabase_url() -> str:
     """Devuelve la URL base del proyecto Supabase."""
-    return normalize_supabase_url(get_secret("SUPABASE_URL") or get_secret("SUPABASE_REST_URL"))
+    return normalize_supabase_url(get_secret("SUPABASE_REST_URL") or get_secret("SUPABASE_URL"))
 
 
 def database_url() -> str:

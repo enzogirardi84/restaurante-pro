@@ -497,17 +497,24 @@ def get_menu(active_only: bool = True) -> list[dict]:
         from supabase import create_client
         from cloud_config import supabase_url, get_secret
         url = supabase_url()
-        key = get_secret("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_ANON_KEY")
+        key = get_secret("SUPABASE_ANON_KEY") or get_secret("SUPABASE_SERVICE_ROLE_KEY")
         if url and key:
             sb = create_client(url, key)
             query = sb.table("productos_menu").select(
-                "id_producto, nombre, precio_venta, categoria, activo, precio_original, precio_final, descuento_aplicado"
+                "id_producto, nombre, precio_venta, categoria, activo"
             )
             if active_only:
                 query = query.eq("activo", 1)
             resp = query.order("categoria").order("nombre").execute()
             if resp.data:
-                return resp.data
+                productos = [dict(p) for p in resp.data]
+                for producto in productos:
+                    precio_original = float(producto["precio_venta"] or 0)
+                    precio_final = calcular_precio_promocion(producto["categoria"], precio_original)
+                    producto["precio_original"] = precio_original
+                    producto["precio_final"] = precio_final
+                    producto["descuento_aplicado"] = max(precio_original - precio_final, 0)
+                return productos
     except Exception:
         pass
 

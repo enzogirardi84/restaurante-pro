@@ -164,11 +164,11 @@ def _asegurar_sqlite_local():
     try:
         _s = st.secrets.get("supabase", {}) or {}
         _supa_url = _s.get("url") or _s.get("URL") or st.secrets.get("SUPABASE_URL", "")
-        _supa_key = _s.get("service_role_key") or _s.get("SERVICE_ROLE_KEY") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        _supa_key = _s.get("anon_key") or _s.get("ANON_KEY") or st.secrets.get("SUPABASE_ANON_KEY", "") or _s.get("service_role_key") or _s.get("SERVICE_ROLE_KEY") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
     except Exception:
         pass
     _supa_url = _supa_url or os.environ.get("SUPABASE_URL", "")
-    _supa_key = _supa_key or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "") or os.environ.get("SUPABASE_ANON_KEY", "")
+    _supa_key = _supa_key or os.environ.get("SUPABASE_ANON_KEY", "") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
     if not _supa_url or not _supa_key:
         return
     if not DB_PATH.exists() or DB_PATH.stat().st_size < 4096:
@@ -870,6 +870,46 @@ def _get_menu_local_cached(active_only: bool, promo_sig: tuple) -> list[dict]:
     return productos
 
 
+def _apply_menu_prices(productos: list[dict], promo_sig: tuple) -> list[dict]:
+    promo_activa, promo_categoria, promo_umbral, promo_descuento = promo_sig
+    normalizados: list[dict] = []
+    for producto in productos:
+        item = dict(producto)
+        try:
+            precio_original = float(item["precio_venta"]) if item.get("precio_venta") is not None else 0.0
+        except (TypeError, ValueError):
+            precio_original = 0.0
+        if promo_activa and item.get("categoria") == promo_categoria and precio_original > promo_umbral:
+            precio_final = round(precio_original * (1 - promo_descuento))
+        else:
+            precio_final = precio_original
+        item["precio_original"] = precio_original
+        item["precio_final"] = precio_final
+        item["descuento_aplicado"] = max(precio_original - precio_final, 0)
+        normalizados.append(item)
+    return normalizados
+
+
+def _get_menu_supabase(active_only: bool, promo_sig: tuple) -> list[dict]:
+    try:
+        from supabase import create_client
+        from cloud_config import supabase_url, get_secret
+        url = supabase_url()
+        key = get_secret("SUPABASE_ANON_KEY") or get_secret("SUPABASE_SERVICE_ROLE_KEY")
+        if not (url and key):
+            return []
+        sb = create_client(url, key)
+        query = sb.table("productos_menu").select(
+            "id_producto, nombre, precio_venta, categoria, activo"
+        )
+        if active_only:
+            query = query.eq("activo", 1)
+        resp = query.order("categoria").order("nombre").execute()
+        return _apply_menu_prices(resp.data or [], promo_sig)
+    except Exception:
+        return []
+
+
 def get_menu(active_only: bool = True) -> list[dict]:
     """Trae productos_menu desde la base local/pool; Supabase REST queda como fallback."""
     promo = promo_config()
@@ -879,29 +919,19 @@ def get_menu(active_only: bool = True) -> list[dict]:
         float(promo["umbral"]),
         float(promo["descuento"]),
     )
+    productos_cloud = _get_menu_supabase(active_only, promo_sig)
+    if productos_cloud:
+        return productos_cloud
+
     productos = _get_menu_local_cached(active_only, promo_sig)
     if productos:
         return productos
 
-    try:
-        from supabase import create_client
-        from cloud_config import supabase_url, get_secret
-        url = supabase_url()
-        key = get_secret("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_ANON_KEY")
-        if url and key:
-            sb = create_client(url, key)
-            query = sb.table("productos_menu").select(
-                "id_producto, nombre, precio_venta, categoria, activo, precio_original, precio_final, descuento_aplicado"
-            )
-            if active_only:
-                query = query.eq("activo", 1)
-            resp = query.order("categoria").order("nombre").execute()
-            if resp.data:
-                return resp.data
-    except Exception:
-        pass
+    productos_cloud = _get_menu_supabase(active_only, promo_sig)
+    if productos_cloud:
+        return productos_cloud
 
-    st.warning("No se pudieron cargar los platos desde la base local.", icon="⚠")
+    st.warning("No se pudieron cargar los platos desde la base local.")
     return []
 
 
@@ -1078,7 +1108,7 @@ def _get_supabase():
         from supabase import create_client
         from cloud_config import supabase_url, get_secret
         url = supabase_url()
-        key = get_secret("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_ANON_KEY")
+        key = get_secret("SUPABASE_ANON_KEY") or get_secret("SUPABASE_SERVICE_ROLE_KEY")
         if url and key:
             return create_client(url, key)
     except Exception:
@@ -2356,7 +2386,7 @@ def page_cocina() -> None:
                                 unsafe_allow_html=True,
                             )
                         with prow[1]:
-                            if st.button("âˆ’", key=f"ck_minus_{pid}", disabled=qty == 0, use_container_width=True):
+                            if st.button("-", key=f"ck_minus_{pid}", disabled=qty == 0, use_container_width=True):
                                 if qty > 1:
                                     ckart[pid]["cantidad"] = qty - 1
                                 else:
@@ -2416,7 +2446,7 @@ def page_cocina() -> None:
             )
             id_usr_cocina = personal_cocina[0]["id_usuario"] if personal_cocina else 1
 
-            if st.button("✅ Crear Pedido", type="primary", disabled=not ckart, use_container_width=True):
+            if st.button("Crear pedido", type="primary", disabled=not ckart, use_container_width=True):
                 try:
                     nuevo_id = crear_pedido(mesa_id, id_usr_cocina, ckart)
                     registrar_auditoria("cocina", "pedido_manual", f"Pedido {nuevo_id} mesa {mesa_id}")
@@ -2427,7 +2457,7 @@ def page_cocina() -> None:
                 except Exception as exc:
                     st.error(str(exc))
 
-            if st.button("âœ• Cancelar", use_container_width=True):
+            if st.button("Cancelar", use_container_width=True):
                 st.session_state["cocina_form_open"] = False
                 st.session_state["cocina_kart"] = {}
                 st.rerun()

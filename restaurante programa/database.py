@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -563,11 +564,16 @@ class _FallbackConnection:
 
 _SQLITE_INIT_DONE = False
 _PG_FALLBACK = False
+_PG_FALLBACK_UNTIL = 0.0
+PG_FALLBACK_RETRY_SECONDS = 60
 
 
 def get_connection(raise_on_error: bool = False):
     """Retorna una conexion SQLite local o PostgreSQL/Supabase."""
-    global _SQLITE_INIT_DONE, _PG_FALLBACK
+    global _SQLITE_INIT_DONE, _PG_FALLBACK, _PG_FALLBACK_UNTIL
+    if _PG_FALLBACK and time.monotonic() >= _PG_FALLBACK_UNTIL:
+        _PG_FALLBACK = False
+
     if not _PG_FALLBACK:
         pg_url = normalized_database_url()
         if pg_url:
@@ -579,7 +585,11 @@ def get_connection(raise_on_error: bool = False):
                     raise
                 import warnings
                 _PG_FALLBACK = True
-                warnings.warn(f"PostgreSQL no disponible ({exc}). Usando SQLite local (desactivado hasta reinicio).")
+                _PG_FALLBACK_UNTIL = time.monotonic() + PG_FALLBACK_RETRY_SECONDS
+                warnings.warn(
+                    f"PostgreSQL no disponible ({exc}). Usando SQLite local y reintentando en "
+                    f"{PG_FALLBACK_RETRY_SECONDS}s."
+                )
     DB_DIR.mkdir(parents=True, exist_ok=True)
     try:
         conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
@@ -1369,7 +1379,7 @@ def _recuperar_pedido_supabase(id_pedido: int, conn: sqlite3.Connection) -> bool
         from supabase import create_client
         from cloud_config import supabase_url, get_secret
         url = supabase_url()
-        key = get_secret("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_ANON_KEY")
+        key = get_secret("SUPABASE_ANON_KEY") or get_secret("SUPABASE_SERVICE_ROLE_KEY")
         if not url or not key:
             return False
         sb = create_client(url, key)

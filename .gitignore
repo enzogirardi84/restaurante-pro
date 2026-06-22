@@ -25,3 +25,6 @@ test_mejoras.py
 # Node
 frontend/node_modules/
 frontend/dist/
+.tmp_pycache/
+.tmp_test/
+.test_tmp/

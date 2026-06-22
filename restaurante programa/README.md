@@ -9,7 +9,7 @@ Sistema de gestion para restaurante con terminales de mozo, cocina, caja y panel
 - Terminal automatica para mozo, cocina, caja y panel.
 - Gestion de personal: mozo, cocina, caja y administrador.
 - Pedidos por mesa con notas para cocina.
-- Cocina tipo KDS con tiempos, estados y despacho.
+- Cocina con tiempos, estados y despacho.
 - Caja con cobro total/parcial, ticket y cierre.
 - Menu, promociones automaticas, recetas por plato e inventario.
 - Inventario con proveedores, compras, ajustes, mermas e historial de movimientos.

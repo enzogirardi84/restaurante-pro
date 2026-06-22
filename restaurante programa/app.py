@@ -1,5 +1,5 @@
 """
-Monitor de cocina (KDS).
+Monitor de cocina.
 Muestra comandas por estado y permite avanzar el flujo de preparacion.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from database import (
 
 
 st.set_page_config(
-    page_title="KDS - Monitor de Cocina",
+    page_title="Cocina - Monitor de Pedidos",
     layout="wide",
     initial_sidebar_state="collapsed",
 )

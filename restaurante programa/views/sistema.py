@@ -232,8 +232,8 @@ def _tab_sincronizacion():
             st.secrets.get("url") or st.secrets.get("URL")
         )
         _debug_key = bool(
-            _supa_section.get("service_role_key") or _supa_section.get("SERVICE_ROLE_KEY") or
-            st.secrets.get("SUPABASE_SERVICE_ROLE_KEY") or st.secrets.get("service_role_key")
+            _supa_section.get("anon_key") or _supa_section.get("ANON_KEY") or
+            st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("anon_key") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY") or st.secrets.get("service_role_key")
         )
         st.caption(f"🔍 URL: {'✓' if _debug_url else '✗'} | KEY: {'✓' if _debug_key else '✗'} | section:{_supa_keys}")
         if st.button("Subir todo a Supabase", type="secondary", use_container_width=True):
@@ -241,7 +241,7 @@ def _tab_sincronizacion():
             st.toast(msg, icon="✅" if ok else "❌")
             st.rerun()
         if not _debug_url or not _debug_key:
-            st.caption("Falta URL o SERVICE_ROLE_KEY en secrets → Sistema → Sincronización no disponible")
+            st.caption("Falta URL o SUPABASE_ANON_KEY en secrets → Sistema → Sincronización no disponible")
 
 
 # ── Pestana 4: Auditoria ──────────────────────────────────────────────────
@@ -482,9 +482,9 @@ def _subir_todo_supabase():
     _supa_url = (_supa_section.get("url") or _supa_section.get("URL") or _supa_section.get("supabase_url") or
                  st.secrets.get("SUPABASE_URL") or st.secrets.get("supabase_url") or st.secrets.get("url") or
                  os.environ.get("SUPABASE_URL", ""))
-    _svc_key = (_supa_section.get("service_role_key") or _supa_section.get("SERVICE_ROLE_KEY") or
-                st.secrets.get("SUPABASE_SERVICE_ROLE_KEY") or st.secrets.get("service_role_key") or
-                os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""))
+    _svc_key = (_supa_section.get("anon_key") or _supa_section.get("ANON_KEY") or
+                st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("anon_key") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY") or st.secrets.get("service_role_key") or
+                os.environ.get("SUPABASE_ANON_KEY", "") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""))
     if not _supa_url or not _svc_key:
         return False, f"Faltan credenciales. URL={'OK' if _supa_url else 'NO'}, KEY={'OK' if _svc_key else 'NO'}"
     _base = _supa_url.rstrip("/") + "/rest/v1"
