@@ -4,22 +4,31 @@ import os
 import sys
 import urllib.request
 
-os.environ["DB_ENGINE"] = "sqlite"
-
 BASE_DIR = Path(__file__).resolve().parent
+os.environ["DB_ENGINE"] = "sqlite"
+os.environ["DB_PATH"] = str(BASE_DIR / ".test_tmp" / "root_mejoras.db")
+
 sys.path.insert(0, str(BASE_DIR))
-from database import get_connection_direct
+from database import get_connection_direct, init_db
 from components.imagenes import obtener_imagen
 
 ok = 0
+fail = 0
 def check(nombre, cond):
-    global ok
-    ok += 1
+    global ok, fail
+    if cond:
+        ok += 1
+    else:
+        fail += 1
     status = "OK" if cond else "FAIL"
     print(f"  [{status}] {nombre}")
 
 print("=== MEJORAS IMPLEMENTADAS ===")
 print()
+
+init_result = init_db()
+assert init_result.get("ok"), f"init_db() fallo: {init_result.get('error')}"
+
 
 # 1. Login por usuario/contraseña
 conn = get_connection_direct()
@@ -31,7 +40,14 @@ check("Login: seed data con hashes", len(user["password_hash"]) == 64)
 # 2. Impresión con auto-detección
 from components.tickets import _detectar_puerto, ticket_a_html
 check("Tickets: auto-detect puertos", callable(_detectar_puerto))
-check("Tickets: export HTML vintage", "F4EAE1" in ticket_a_html(1))
+conn.execute("INSERT INTO pedidos_cabecera (id_mesa, id_usuario) VALUES (1, 1)")
+pedido_ticket = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+conn.execute(
+    "INSERT INTO pedido_detalle (id_pedido, id_producto, cantidad, precio_unitario_facturado) VALUES (?, 1, 1, 8500)",
+    (pedido_ticket,),
+)
+conn.commit()
+check("Tickets: export HTML vintage", "F4EAE1" in ticket_a_html(pedido_ticket))
 
 # 3. Medios de pago en caja
 conn.close()
@@ -67,4 +83,6 @@ db = (BASE_DIR / "database.py").read_text(encoding="utf-8")
 check("DB: SSL mode Supabase", "sslmode" in db or "ssl" in db)
 
 print()
-print(f"Total: {ok} verificaciones")
+print(f"Total: {ok + fail} verificaciones")
+if fail:
+    raise SystemExit(1)

@@ -219,6 +219,7 @@ def init_db(schema_file: str | None = None) -> dict:
                 sql = f.read()
             if config.DB_ENGINE == "sqlite":
                 conn.executescript(sql)
+                _migrate_sqlite_schema(conn)
             else:
                 cur = conn.cursor()
                 cur.execute(sql)
@@ -249,6 +250,159 @@ def init_db(schema_file: str | None = None) -> dict:
         pass
 
     return {"ok": True}
+
+
+def _column_exists(conn: Any, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in rows)
+
+
+def _table_exists(conn: Any, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _migrate_sqlite_schema(conn: Any) -> None:
+    """Alinea bases existentes con las columnas que usa la UI actual."""
+    _repair_productos_menu_primary_key(conn)
+
+    if _table_exists(conn, "usuarios") and not _column_exists(conn, "usuarios", "pin"):
+        conn.execute("ALTER TABLE usuarios ADD COLUMN pin TEXT DEFAULT '0000'")
+
+    if _table_exists(conn, "pedidos_cabecera"):
+        if not _column_exists(conn, "pedidos_cabecera", "medio_pago"):
+            conn.execute("ALTER TABLE pedidos_cabecera ADD COLUMN medio_pago TEXT DEFAULT ''")
+        if not _column_exists(conn, "pedidos_cabecera", "total_cobrado"):
+            conn.execute("ALTER TABLE pedidos_cabecera ADD COLUMN total_cobrado REAL DEFAULT 0")
+        if not _column_exists(conn, "pedidos_cabecera", "fecha_cobro"):
+            conn.execute("ALTER TABLE pedidos_cabecera ADD COLUMN fecha_cobro TEXT")
+
+    if _table_exists(conn, "pedido_detalle"):
+        if not _column_exists(conn, "pedido_detalle", "cantidad_cobrada"):
+            conn.execute("ALTER TABLE pedido_detalle ADD COLUMN cantidad_cobrada INTEGER DEFAULT 0")
+        if not _column_exists(conn, "pedido_detalle", "cantidad_anulada"):
+            conn.execute("ALTER TABLE pedido_detalle ADD COLUMN cantidad_anulada INTEGER DEFAULT 0")
+        if not _column_exists(conn, "pedido_detalle", "motivo_anulacion"):
+            conn.execute("ALTER TABLE pedido_detalle ADD COLUMN motivo_anulacion TEXT DEFAULT ''")
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS auditoria_eventos (
+            id_evento  INTEGER PRIMARY KEY AUTOINCREMENT,
+            modulo     TEXT NOT NULL,
+            accion     TEXT NOT NULL,
+            detalle    TEXT NOT NULL DEFAULT '',
+            fecha_hora TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS movimientos_stock (
+            id_movimiento_stock INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_insumo           INTEGER NOT NULL REFERENCES insumos(id_insumo) ON DELETE RESTRICT,
+            id_usuario          INTEGER REFERENCES usuarios(id_usuario) ON DELETE SET NULL,
+            id_proveedor        INTEGER REFERENCES proveedores(id_proveedor) ON DELETE SET NULL,
+            tipo_movimiento     TEXT NOT NULL DEFAULT 'ajuste_entrada',
+            cantidad            REAL NOT NULL DEFAULT 0,
+            stock_anterior      REAL NOT NULL DEFAULT 0,
+            stock_nuevo         REAL NOT NULL DEFAULT 0,
+            descripcion         TEXT NOT NULL DEFAULT '',
+            fecha_hora          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS pagos_mesa (
+            id_pago    INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_mesa    INTEGER NOT NULL REFERENCES mesas(id_mesa) ON DELETE RESTRICT,
+            id_usuario INTEGER REFERENCES usuarios(id_usuario) ON DELETE SET NULL,
+            fecha_hora TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            medio_pago TEXT NOT NULL DEFAULT '',
+            subtotal   REAL NOT NULL DEFAULT 0,
+            descuento  REAL NOT NULL DEFAULT 0,
+            servicio   REAL NOT NULL DEFAULT 0,
+            total      REAL NOT NULL DEFAULT 0,
+            tipo       TEXT NOT NULL DEFAULT 'total' CHECK (tipo IN ('total', 'parcial'))
+        );
+
+        CREATE TABLE IF NOT EXISTS pago_detalle (
+            id_pago_detalle INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_pago         INTEGER NOT NULL REFERENCES pagos_mesa(id_pago) ON DELETE RESTRICT,
+            id_detalle      INTEGER NOT NULL REFERENCES pedido_detalle(id_detalle) ON DELETE RESTRICT,
+            cantidad        INTEGER NOT NULL CHECK (cantidad > 0),
+            precio_unitario REAL NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS turnos_personal (
+            id_turno INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_usuario INTEGER NOT NULL REFERENCES usuarios(id_usuario) ON DELETE RESTRICT,
+            fecha TEXT NOT NULL,
+            hora_entrada TEXT NOT NULL,
+            hora_salida TEXT,
+            minutos_trabajados INTEGER NOT NULL DEFAULT 0,
+            estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo', 'cerrado'))
+        );
+
+        CREATE TABLE IF NOT EXISTS cola_sincronizacion (
+            id_sync INTEGER PRIMARY KEY AUTOINCREMENT,
+            tabla TEXT NOT NULL,
+            operacion TEXT NOT NULL,
+            clave_primaria TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            creado_en TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            sincronizado INTEGER NOT NULL DEFAULT 0,
+            ultimo_intento TEXT,
+            intentos INTEGER NOT NULL DEFAULT 0
+        );
+        """
+    )
+
+
+def _primary_key_columns(conn: Any, table: str) -> set[str]:
+    return {
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        if row["pk"]
+    }
+
+
+def _repair_productos_menu_primary_key(conn: Any) -> None:
+    """Repara bases antiguas donde productos_menu fue creada sin PK."""
+    if not _table_exists(conn, "productos_menu"):
+        return
+    if "id_producto" in _primary_key_columns(conn, "productos_menu"):
+        return
+
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS productos_menu_new (
+                id_producto  INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre       TEXT NOT NULL,
+                precio_venta REAL NOT NULL CHECK (precio_venta >= 0),
+                categoria    TEXT NOT NULL DEFAULT 'cocina',
+                activo       INTEGER NOT NULL DEFAULT 1,
+                url_imagen   TEXT DEFAULT ''
+            );
+
+            INSERT OR IGNORE INTO productos_menu_new
+                (id_producto, nombre, precio_venta, categoria, activo, url_imagen)
+            SELECT
+                CASE WHEN id_producto IS NULL THEN NULL ELSE CAST(id_producto AS INTEGER) END,
+                COALESCE(nombre, ''),
+                COALESCE(precio_venta, 0),
+                COALESCE(categoria, 'cocina'),
+                COALESCE(activo, 1),
+                COALESCE(url_imagen, '')
+            FROM productos_menu
+            ORDER BY id_producto;
+
+            DROP TABLE productos_menu;
+            ALTER TABLE productos_menu_new RENAME TO productos_menu;
+            """
+        )
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
 
 
 def _seed_menu_premium(conn) -> None:

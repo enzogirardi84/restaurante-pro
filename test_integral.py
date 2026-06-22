@@ -1,6 +1,12 @@
 """Test integral de COMANDAPRO ERP."""
-import sys, os
-sys.path.insert(0, r"C:\comandapro_erp")
+import os
+import sys
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+os.environ["DB_ENGINE"] = "sqlite"
+os.environ["DB_PATH"] = str(BASE_DIR / ".test_tmp" / "root_integral.db")
+sys.path.insert(0, str(BASE_DIR))
 
 from database import get_connection_direct, init_db
 from components.imagenes import obtener_imagen
@@ -90,7 +96,7 @@ check("contiene Hamburguesa", "Hamburguesa" in texto)
 check("contiene Vuelto", True)  # placeholder
 
 html = ticket_a_html(pid)
-check("ticket_a_html() genera HTML", "TOTAL" in html)
+check("ticket_a_html() genera HTML", "<html" in html and "Total" in html)
 check("contiene estilo vintage", "F4EAE1" in html)
 check("contiene font-family", "monospace" in html)
 

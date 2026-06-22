@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
     apellido      TEXT NOT NULL,
     username      TEXT NOT NULL UNIQUE DEFAULT '',
     password_hash TEXT NOT NULL DEFAULT '',
-    rol           TEXT NOT NULL CHECK (rol IN ('mozo', 'cocina', 'administrador'))
+    rol           TEXT NOT NULL CHECK (rol IN ('mozo', 'cocina', 'caja', 'administrador')),
+    pin           TEXT DEFAULT '0000'
 );
 
 CREATE TABLE IF NOT EXISTS mesas (
@@ -50,7 +51,10 @@ CREATE TABLE IF NOT EXISTS pedidos_cabecera (
     id_usuario     INTEGER NOT NULL REFERENCES usuarios(id_usuario) ON DELETE RESTRICT,
     fecha_hora     TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     estado_comanda TEXT NOT NULL DEFAULT 'pendiente'
-                   CHECK (estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado', 'cobrado'))
+                   CHECK (estado_comanda IN ('pendiente', 'en_cocina', 'listo', 'entregado', 'cobrado')),
+    medio_pago     TEXT DEFAULT '',
+    total_cobrado  REAL DEFAULT 0,
+    fecha_cobro    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS pedido_detalle (
@@ -59,7 +63,74 @@ CREATE TABLE IF NOT EXISTS pedido_detalle (
     id_producto              INTEGER NOT NULL REFERENCES productos_menu(id_producto) ON DELETE RESTRICT,
     cantidad                 INTEGER NOT NULL CHECK (cantidad > 0),
     observaciones            TEXT NOT NULL DEFAULT '',
-    precio_unitario_facturado REAL
+    precio_unitario_facturado REAL,
+    cantidad_cobrada         INTEGER DEFAULT 0,
+    cantidad_anulada         INTEGER DEFAULT 0,
+    motivo_anulacion         TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS auditoria_eventos (
+    id_evento  INTEGER PRIMARY KEY AUTOINCREMENT,
+    modulo     TEXT NOT NULL,
+    accion     TEXT NOT NULL,
+    detalle    TEXT NOT NULL DEFAULT '',
+    fecha_hora TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS movimientos_stock (
+    id_movimiento_stock INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_insumo           INTEGER NOT NULL REFERENCES insumos(id_insumo) ON DELETE RESTRICT,
+    id_usuario          INTEGER REFERENCES usuarios(id_usuario) ON DELETE SET NULL,
+    id_proveedor        INTEGER REFERENCES proveedores(id_proveedor) ON DELETE SET NULL,
+    tipo_movimiento     TEXT NOT NULL DEFAULT 'ajuste_entrada',
+    cantidad            REAL NOT NULL DEFAULT 0,
+    stock_anterior      REAL NOT NULL DEFAULT 0,
+    stock_nuevo         REAL NOT NULL DEFAULT 0,
+    descripcion         TEXT NOT NULL DEFAULT '',
+    fecha_hora          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS pagos_mesa (
+    id_pago    INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_mesa    INTEGER NOT NULL REFERENCES mesas(id_mesa) ON DELETE RESTRICT,
+    id_usuario INTEGER REFERENCES usuarios(id_usuario) ON DELETE SET NULL,
+    fecha_hora TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    medio_pago TEXT NOT NULL DEFAULT '',
+    subtotal   REAL NOT NULL DEFAULT 0,
+    descuento  REAL NOT NULL DEFAULT 0,
+    servicio   REAL NOT NULL DEFAULT 0,
+    total      REAL NOT NULL DEFAULT 0,
+    tipo       TEXT NOT NULL DEFAULT 'total' CHECK (tipo IN ('total', 'parcial'))
+);
+
+CREATE TABLE IF NOT EXISTS pago_detalle (
+    id_pago_detalle INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_pago         INTEGER NOT NULL REFERENCES pagos_mesa(id_pago) ON DELETE RESTRICT,
+    id_detalle      INTEGER NOT NULL REFERENCES pedido_detalle(id_detalle) ON DELETE RESTRICT,
+    cantidad        INTEGER NOT NULL CHECK (cantidad > 0),
+    precio_unitario REAL NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS turnos_personal (
+    id_turno INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL REFERENCES usuarios(id_usuario) ON DELETE RESTRICT,
+    fecha TEXT NOT NULL,
+    hora_entrada TEXT NOT NULL,
+    hora_salida TEXT,
+    minutos_trabajados INTEGER NOT NULL DEFAULT 0,
+    estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo', 'cerrado'))
+);
+
+CREATE TABLE IF NOT EXISTS cola_sincronizacion (
+    id_sync INTEGER PRIMARY KEY AUTOINCREMENT,
+    tabla TEXT NOT NULL,
+    operacion TEXT NOT NULL,
+    clave_primaria TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    creado_en TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    sincronizado INTEGER NOT NULL DEFAULT 0,
+    ultimo_intento TEXT,
+    intentos INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS proveedores (
